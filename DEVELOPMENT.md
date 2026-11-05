@@ -15,6 +15,12 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.5.1 streaming-display follow-up
+
+- Coalesced ChatGPT and DeepSeek streaming display updates with a single-shot 50 ms precise timer. Every delta still appends to the answer immediately; expensive full-message Markdown rendering happens on the display cadence instead of once per SSE frame.
+- Immediate display transitions stop pending refreshes. Network completion flushes partial output on both success and interruption; Stop flushes immediately, and New Chat cancels pending rendering before clearing messages.
+- Offline tests feed 200 SSE frames to each provider, verify lossless assembly without per-frame document changes, wait for the rendered result, and check immediate Unicode-tail rendering on Stop and no old-message revival after New Chat. This measures update coalescing, not server latency or a claimed end-to-end speedup.
+
 ## 1.5.0 TODO Tree follow-up
 
 - Added TODO Tree to the native extension catalog with an existing document icon on a rounded amber background. It scans TODO/FIXME/BUG/HACK/XXX text markers, including ordinary text; it is not a language-aware comment parser.

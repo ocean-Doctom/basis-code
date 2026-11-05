@@ -202,6 +202,7 @@ struct ChatGptPage::State {
     QTcpServer listener;
     QPointer<QNetworkReply> response;
     QTimer loginTimeout;
+    QTimer streamRefresh;
     QComboBox *accounts;
     QComboBox *models;
     QPushButton *login;
@@ -261,7 +262,12 @@ struct ChatGptPage::State {
         worker->start();
     }
 
-    explicit State(ChatGptPage *owner) : page(owner) {}
+    explicit State(ChatGptPage *owner) : page(owner) {
+        streamRefresh.setSingleShot(true);
+        streamRefresh.setInterval(50);
+        streamRefresh.setTimerType(Qt::PreciseTimer);
+        QObject::connect(&streamRefresh, &QTimer::timeout, page, [this] { display(); });
+    }
     QJsonObject account() const { return records[activeId].toObject(); }
     void busy(bool value) {
         login->setEnabled(!value);
@@ -316,6 +322,7 @@ struct ChatGptPage::State {
         });
     }
     void display() {
+        streamRefresh.stop();
         QJsonArray entries = history;
         if (!draft.isEmpty()) {
             entries.append(QJsonObject{{"role", "user"}, {"content", draft}});
@@ -561,6 +568,9 @@ struct ChatGptPage::State {
         if (!response) return;
         consumeStreamBytes(response->readAll());
     }
+    void scheduleStreamDisplay() {
+        if (!streamRefresh.isActive()) streamRefresh.start();
+    }
     void consumeStreamBytes(const QByteArray &bytes) {
         streamBuffer += bytes;
         streamBuffer.replace("\r\n", "\n");
@@ -579,12 +589,12 @@ struct ChatGptPage::State {
                     const auto delta = choice["delta"].toObject();
                     if (!delta["reasoning_content"].toString().isEmpty()) status->setText(QObject::tr("DeepSeek 正在思考…"));
                     answer += delta["content"].toString();
-                    if (!delta["content"].toString().isEmpty()) display();
+                    if (!delta["content"].toString().isEmpty()) scheduleStreamDisplay();
                 }
                 continue;
             }
             const QString type = event["type"].toString();
-            if (type == "response.output_text.delta" || type == "response.refusal.delta") { answer += event["delta"].toString(); display(); }
+            if (type == "response.output_text.delta" || type == "response.refusal.delta") { answer += event["delta"].toString(); scheduleStreamDisplay(); }
             else if (type == "response.completed") completed = true;
             else if (type == "response.failed" || type == "error")
                 status->setText(QObject::tr("请求未完成，请检查账号配额或稍后重试。"));
@@ -628,12 +638,13 @@ struct ChatGptPage::State {
                         auto record = account(); record["history"] = history; records[activeId] = record;
                         saveRecords(); credentialLock.reset();
                     }
-                    display(); status->setText(QObject::tr("回复完成。"));
+                    status->setText(QObject::tr("回复完成。"));
                 } else {
                     status->setText(httpCode == 401 ? (deepSeek() ? QObject::tr("API Key 无效，请重新配置。") : QObject::tr("登录授权已失效，请重新登录后重试。"))
                         : httpCode == 403 ? QObject::tr("当前账号未获此模型的使用权限，请检查授权。")
                         : QObject::tr("回复中断，可保留输入后重试。"));
                 }
+                display();
                 busy(false);
             });
         });
@@ -962,6 +973,7 @@ ChatGptPage::ChatGptPage(QWidget *parent, const QString &provider) : QWidget(par
         state->agentCancelled = true;
         if (state->response) state->response->abort();
         if (state->agentReply) state->agentReply->abort();
+        state->display();
         if (state->toolRunning) state->status->setText(tr("已请求停止，等待当前工具结束（命令最多 30 秒）。"));
     });
     connect(clear, &QPushButton::clicked, this, [this] {

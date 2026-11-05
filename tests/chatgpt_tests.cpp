@@ -10,6 +10,38 @@ static void require(bool condition, const char *message) {
 }
 
 struct ChatPageTestAccess {
+    static void verifyStreamRendering(ChatGptPage &page) {
+        auto &state = *page.state;
+        state.history = {}; state.draft = "Streaming fixture"; state.answer.clear(); state.display();
+        auto frame = [&](const QString &text) {
+            const QJsonObject event = state.deepSeek()
+                ? QJsonObject{{"choices", QJsonArray{QJsonObject{{"delta", QJsonObject{{"content", text}}}}}}}
+                : QJsonObject{{"type", "response.output_text.delta"}, {"delta", text}};
+            return QByteArray("data: ") + QJsonDocument(event).toJson(QJsonDocument::Compact) + "\n\n";
+        };
+        auto *view = state.messages.last()->findChild<QTextBrowser *>("chatMessageText");
+        int documentChanges = 0;
+        QObject::connect(view->document(), &QTextDocument::contentsChanged, &page, [&] { ++documentChanges; });
+        for (int i = 0; i < 200; ++i) state.consumeStreamBytes(frame("x"));
+        require(state.answer == QString(200, 'x') && documentChanges == 0,
+                "stream burst retains every delta without reparsing Markdown for each frame");
+        QElapsedTimer wait; wait.start();
+        while (view->toPlainText() != state.answer && wait.elapsed() < 1000) {
+            QApplication::processEvents(); QThread::msleep(2);
+        }
+        require(view->toPlainText() == state.answer && documentChanges > 0 && documentChanges < 10,
+                "coalesced stream refresh renders complete text with bounded document updates");
+        state.consumeStreamBytes(frame(QString::fromUtf8("中文😀TAIL")));
+        state.stop->click();
+        require(view->toPlainText().endsWith(QString::fromUtf8("中文😀TAIL")) && !state.streamRefresh.isActive(),
+                "stop flushes final Unicode delta immediately and cancels scheduled refresh");
+        state.consumeStreamBytes(frame("STALE"));
+        page.findChild<QPushButton *>("chatgptNewChat")->click();
+        require(state.messages.isEmpty() && !state.streamRefresh.isActive(), "new chat clears messages and pending refresh");
+        wait.restart();
+        while (wait.elapsed() < 80) { QApplication::processEvents(); QThread::msleep(2); }
+        require(state.messages.isEmpty(), "old stream refresh cannot repopulate a new conversation");
+    }
     static void verifyConnection(ChatGptPage &page) {
         page.findChild<QPushButton *>("agentCheckConnection")->click();
         QElapsedTimer wait; wait.start();
@@ -135,7 +167,9 @@ int main(int argc, char **argv) {
                 "native DeepSeek plugin uses independent provider");
         require(!deepseek.findChild<QPushButton *>("chatgptSend")->isEnabled(), "DeepSeek requires key before inference");
         ChatPageTestAccess::verifyDeepSeek(deepseek);
+        ChatPageTestAccess::verifyStreamRendering(deepseek);
         ChatGptPage page;
+        ChatPageTestAccess::verifyStreamRendering(page);
         if (app.arguments().contains("--network-check")) ChatPageTestAccess::verifyConnection(page);
         require(page.findChild<QScrollArea *>("chatgptMessages"), "native chat message area");
         require(page.findChild<QPlainTextEdit *>("chatgptInput"), "native chat input");
