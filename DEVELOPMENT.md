@@ -15,6 +15,15 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.2.1 boundary follow-up
+
+- A real Windows junction regression showed that QFileInfo::canonicalFilePath was insufficient for the tested junction. Existing files/directories now resolve through GetFinalPathNameByHandleW on Windows before boundary checks. Recursive Agent scans also validate each result; Project Search uses the same resolver.
+- Fixed Agent directory depth being measured from the work root instead of the requested subdirectory; scans now have time/entry/read budgets and report truncation.
+- Bounded reads even if files grow after their size check.
+- Agent command processes are hidden and assigned a Windows job when available so descendants are cleaned up when the tool completes. PowerShell propagates native exit codes and no longer appends an unrelated completion marker.
+- Regression coverage includes an actual temporary Windows junction, subdirectory listing, recursive content exclusion, native command output and a native exit-code 7 failure.
+- Packaging rejects uncommitted source by default. Explicit local `-AllowDirty` builds record sourceDirty in release.json; published builds use a clean committed tree.
+
 ## Verified changes
 
 - Removed a stale test dereference of the deleted add-tab button. Preserved the new-project guard.

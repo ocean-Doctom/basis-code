@@ -1,4 +1,5 @@
 #include "agenttools.h"
+#include "filesystempaths.h"
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -12,6 +13,13 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QUuid>
+#include <QElapsedTimer>
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 constexpr qint64 kMaxReadBytes = 512 * 1024;      // 512 KiB read cap
@@ -25,7 +33,7 @@ QString norm(const QString &path) {
 }  // namespace
 
 void AgentTools::setWorkRoot(const QString &path) {
-    workRoot_ = QFileInfo(path).isDir() ? QFileInfo(path).canonicalFilePath() : QString();
+    workRoot_ = QFileInfo(path).isDir() ? resolvedFileSystemPath(path) : QString();
     pending_actions_.clear();
 }
 
@@ -47,7 +55,7 @@ QString AgentTools::resolve(const QString &path) const {
         if (parent == ancestor.absoluteFilePath()) return {};
         ancestor.setFile(parent);
     }
-    const QString canonical = ancestor.canonicalFilePath();
+    const QString canonical = resolvedFileSystemPath(ancestor.absoluteFilePath());
     if (canonical.isEmpty()) return {};
     const QString actualRelative = root.relativeFilePath(canonical);
     if (actualRelative == ".." || actualRelative.startsWith("../") ||
@@ -69,14 +77,19 @@ QString AgentTools::listFiles(const QJsonObject &args, QJsonObject &content) {
     }
     const int maxDepth = qBound(1, depth, 6);
     QJsonArray entries;
-    QDirIterator it(base, QDir::NoDotAndDotDot | QDir::AllEntries, QDirIterator::Subdirectories);
+    QDirIterator it(base, QDir::NoDotAndDotDot | QDir::AllEntries | QDir::NoSymLinks, QDirIterator::Subdirectories);
     int count = 0;
+    int visited = 0;
+    QElapsedTimer elapsed; elapsed.start();
+    bool limited = false;
     const QDir root(workRoot_);
     while (it.hasNext() && count < kMaxListEntries) {
         it.next();
+        if (++visited > 5000 || elapsed.elapsed() > 3000) { limited = true; break; }
         const QString absolute = it.filePath();
+        if (resolve(absolute).isEmpty()) continue;
         const QString relPath = root.relativeFilePath(absolute);
-        const int slashCount = relPath.count('/');
+        const int slashCount = QDir(base).relativeFilePath(absolute).count('/');
         if (slashCount >= maxDepth) continue;  // depth 0 == the dir itself
         QJsonObject entry;
         entry["name"] = it.fileName();
@@ -88,7 +101,7 @@ QString AgentTools::listFiles(const QJsonObject &args, QJsonObject &content) {
     }
     content["entries"] = entries;
     content["count"] = entries.size();
-    content["truncated"] = count >= kMaxListEntries;
+    content["truncated"] = limited || count >= kMaxListEntries;
     return "list_files";
 }
 
@@ -115,7 +128,8 @@ QString AgentTools::readFile(const QJsonObject &args, QJsonObject &content) {
         file.close();
         return "read_file";
     }
-    const QByteArray data = file.readAll();
+    const QByteArray data = file.read(kMaxReadBytes + 1);
+    if (data.size() > kMaxReadBytes) { content["error"] = "file grew beyond read limit"; return "read_file"; }
     file.close();
     content["path"] = QDir(workRoot_).relativeFilePath(path);
     content["size"] = double(data.size());
@@ -136,6 +150,8 @@ QString AgentTools::searchFiles(const QJsonObject &args, QJsonObject &content) {
         content["error"] = "pattern is required";
         return "search_files";
     }
+    if (!QFileInfo(base).isDir()) { content["error"] = "search path is not a directory"; return "search_files"; }
+    if (pattern.size() > 1024) { content["error"] = "regex pattern is too long"; return "search_files"; }
     QRegularExpression regex(pattern,
                              QRegularExpression::CaseInsensitiveOption);
     if (!regex.isValid()) {
@@ -144,17 +160,24 @@ QString AgentTools::searchFiles(const QJsonObject &args, QJsonObject &content) {
     }
     const QDir root(workRoot_);
     QJsonArray results;
-    QDirIterator it(base, QDir::NoDotAndDotDot | QDir::Files, QDirIterator::Subdirectories);
+    QDirIterator it(base, QDir::NoDotAndDotDot | QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
     int count = 0;
+    int visited = 0;
+    qint64 readBytes = 0;
+    QElapsedTimer elapsed; elapsed.start();
+    bool limited = false;
     while (it.hasNext() && count < kMaxSearchResults) {
         it.next();
+        if (++visited > 5000 || elapsed.elapsed() > 3000 || readBytes > 20 * 1024 * 1024) { limited = true; break; }
         const QString absolute = it.filePath();
+        if (resolve(absolute).isEmpty()) continue;
         const QString relPath = root.relativeFilePath(absolute);
         if (contentSearch) {
             QFile file(absolute);
             if (file.size() > kMaxReadBytes) continue;
             if (file.open(QIODevice::ReadOnly)) {
-                const QString text = QString::fromUtf8(file.readAll());
+                const auto bytes = file.read(kMaxReadBytes); readBytes += bytes.size();
+                const QString text = QString::fromUtf8(bytes);
                 file.close();
                 if (!regex.match(text).hasMatch()) continue;
                 QJsonObject entry;
@@ -174,7 +197,7 @@ QString AgentTools::searchFiles(const QJsonObject &args, QJsonObject &content) {
     }
     content["results"] = results;
     content["count"] = results.size();
-    content["truncated"] = count >= kMaxSearchResults;
+    content["truncated"] = limited || count >= kMaxSearchResults;
     return "search_files";
 }
 
@@ -248,6 +271,26 @@ QString AgentTools::runCommand(const QJsonObject &args, QJsonObject &content, bo
     // Execute synchronously with a timeout. Reuse the PowerShell encoded-command
     // approach already used by the terminal pane so output stays UTF-8 safe.
     QProcess process;
+#ifdef Q_OS_WIN
+    struct JobGuard {
+        HANDLE handle = nullptr;
+        ~JobGuard() { if (handle) CloseHandle(handle); }
+    } job;
+    process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *arguments) {
+        arguments->flags |= CREATE_NO_WINDOW;
+    });
+    QObject::connect(&process, &QProcess::started, &process, [&] {
+        HANDLE handle = CreateJobObjectW(nullptr, nullptr);
+        if (!handle) return;
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        HANDLE child = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, DWORD(process.processId()));
+        const bool assigned = SetInformationJobObject(handle, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) &&
+                              child && AssignProcessToJobObject(handle, child);
+        if (child) CloseHandle(child);
+        if (assigned) job.handle = handle; else CloseHandle(handle);
+    });
+#endif
     QByteArray standardOutput, standardError;
     auto collect = [&] {
         const auto out = process.readAllStandardOutput();
@@ -268,8 +311,8 @@ QString AgentTools::runCommand(const QJsonObject &args, QJsonObject &content, bo
     const QString session =
         "[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false); "
         "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); "
-        "$OutputEncoding = [Console]::OutputEncoding; try {\n" + command +
-        "\n} finally { [Console]::Error.WriteLine('__BASIS_DONE__') }";
+        "$OutputEncoding = [Console]::OutputEncoding; $ErrorActionPreference = 'Stop';\n" + command +
+        "\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }";
     QByteArray utf16;
     for (const auto character : session) {
         utf16.append(char(character.unicode() & 255));

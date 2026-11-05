@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/APP_VERSION.txt" BASIS_CODE_VERSION LIMIT_COUNT 1)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/APP_VERSION.txt")
 project(QtApp VERSION "${BASIS_CODE_VERSION}" LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -21,6 +22,7 @@ add_executable(QtApp WIN32
     agenttools.cpp agenttools.h
     builtinextensions.cpp builtinextensions.h
     projectsearch.cpp projectsearch.h
+    filesystempaths.h
     syntaxhighlighter.cpp syntaxhighlighter.h
     codeeditor.cpp codeeditor.h
     windowtitlebar.cpp windowtitlebar.h

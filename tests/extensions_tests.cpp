@@ -32,6 +32,25 @@ int main(int argc, char **argv) {
         tools.setWritePolicy(AgentTools::WritePolicy::Direct);
         auto written = tools.run("a", "write_file", {{"path", "nested/test.txt"}, {"content", "hello"}});
         check(!written.needsConfirm && QFileInfo::exists(root.filePath("nested/test.txt")), "write inside project");
+        const auto listed = tools.run("nested-list", "list_files", {{"path", "nested"}, {"depth", 1}});
+        const auto listing = QJsonDocument::fromJson(listed.payload["content"].toString().toUtf8()).object();
+        check(listing["count"].toInt() == 1, "listing depth is relative to requested subfolder");
+#ifdef Q_OS_WIN
+        QProcess junction;
+        junction.start(qEnvironmentVariable("SystemRoot") + "/System32/cmd.exe",
+                       {"/d", "/c", "mklink", "/J", QDir::toNativeSeparators(root.filePath("outside-link")), QDir::toNativeSeparators(outside.path())});
+        const bool junctionDone = junction.waitForFinished(5000);
+        if (!junctionDone || junction.exitCode() != 0)
+            std::cerr << "Junction fixture: " << junction.readAllStandardOutput().constData() << junction.readAllStandardError().constData() << '\n';
+        check(junctionDone && junction.exitCode() == 0, "create temporary junction fixture");
+        QFile outsideSecret(outside.filePath("outside-only.txt"));
+        check(outsideSecret.open(QIODevice::WriteOnly), "create outside junction fixture");
+        outsideSecret.write("EXTERNAL_BOUNDARY_MARKER"); outsideSecret.close();
+        check(tools.resolve("outside-link/outside-only.txt").isEmpty(), "junction cannot escape project root");
+        const auto external = tools.run("junction-search", "search_files", {{"pattern", "EXTERNAL_BOUNDARY_MARKER"}, {"content", true}});
+        const auto externalResults = QJsonDocument::fromJson(external.payload["content"].toString().toUtf8()).object();
+        check(externalResults["count"].toInt() == 0, "recursive content search does not read junction targets outside project");
+#endif
         tools.setWritePolicy(AgentTools::WritePolicy::Confirm);
         auto pending = tools.run("b", "write_file", {{"path", "blocked.txt"}, {"content", "no"}});
         check(pending.needsConfirm, "write requires consent");
@@ -41,6 +60,23 @@ int main(int argc, char **argv) {
         tools.setCommandPolicy(AgentTools::CommandPolicy::Allowlist);
         auto denied = tools.run("c", "run_command", {{"command", "echo safe; echo unsafe"}});
         check(QJsonDocument::fromJson(denied.payload["content"].toString().toUtf8()).object().contains("error"), "reject shell composition");
+        tools.setCommandPolicy(AgentTools::CommandPolicy::Any);
+#ifdef Q_OS_WIN
+        const QString nativeCommand = "Write-Output BASIS_AGENT_NATIVE_OK";
+#else
+        const QString nativeCommand = "echo BASIS_AGENT_NATIVE_OK";
+#endif
+        const auto commandResult = tools.run("native", "run_command", {{"command", nativeCommand}});
+        const auto commandContent = QJsonDocument::fromJson(commandResult.payload["content"].toString().toUtf8()).object();
+        check(commandContent["exitCode"].toInt(-1) == 0 && commandContent["stdout"].toString().contains("BASIS_AGENT_NATIVE_OK"), "native tool command runs and captures output");
+#ifdef Q_OS_WIN
+        const QString failingCommand = "cmd.exe /c exit 7";
+#else
+        const QString failingCommand = "exit 7";
+#endif
+        const auto failure = tools.run("native-failure", "run_command", {{"command", failingCommand}});
+        const auto failureContent = QJsonDocument::fromJson(failure.payload["content"].toString().toUtf8()).object();
+        check(failureContent["exitCode"].toInt() == 7, "tool preserves native failure exit code");
         QPlainTextEdit editor;
         editor.setPlainText("{\"answer\":42}");
         auto *json = createBuiltinExtension("JSON Tools", &editor, "test.json", root.path(), nullptr);

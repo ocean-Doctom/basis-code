@@ -2,6 +2,8 @@
 
 源码仓库：https://github.com/ocean-Doctom/basis-code · 许可证：[Apache-2.0](LICENSE)。第三方依赖保留各自许可证。
 
+1.2.1 修复了真实 Windows 目录联接测试发现的工作目录边界问题，并修正 Agent 子目录列表深度、原生命令退出码和扫描资源限制。建议使用这一版本或更高版本。
+
 1.2.0 增加可取消的 Project Search 后台项目搜索、聊天服务连接检查，修复多文档插件绑定与超长行注释状态，限制 Git 输出内存。应用和安装包版本统一读取 APP_VERSION.txt。
 
 1.1.0 增加可用的 Markdown Preview、JSON Tools、Whitespace Cleaner、Git Changes 原生扩展。在扩展列表点击打开；格式化作用于打开扩展时绑定的文档，可撤销。它们提供常见编辑器扩展能力，不支持直接安装 VS Code VSIX。完整开发、性能和验证记录见 [DEVELOPMENT.md](DEVELOPMENT.md)。

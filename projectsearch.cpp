@@ -1,4 +1,5 @@
 #include "projectsearch.h"
+#include "filesystempaths.h"
 #include <QLineEdit>
 #include <QPushButton>
 #include <QTreeWidget>
@@ -20,6 +21,9 @@ struct Hit { QString path; int line; QString text; };
 struct Scan { QList<Hit> hits; int visited = 0; bool limited = false; };
 Scan search(const QString &folder, const QString &keyword, const std::shared_ptr<std::atomic_bool> &cancel) {
     Scan result;
+    const QString realRoot = resolvedFileSystemPath(folder);
+    if (realRoot.isEmpty()) return result;
+    const QDir rootDirectory(realRoot);
     QStringList folders{folder}; qint64 bytes = 0;
     QElapsedTimer time; time.start();
     const QSet<QString> excluded{".git", ".svn", "node_modules", "build", ".venv", "venv", "__pycache__"};
@@ -32,8 +36,9 @@ Scan search(const QString &folder, const QString &keyword, const std::shared_ptr
             if (++result.visited > 5000 || time.elapsed() > 3000 || bytes > 20 * 1024 * 1024 || result.hits.size() >= 500) {
                 result.limited = true; return result;
             }
-            const QString relative = QDir(folder).relativeFilePath(entry.canonicalFilePath());
-            if (entry.canonicalFilePath().isEmpty() || relative == ".." || relative.startsWith("../") || QDir::isAbsolutePath(relative)) continue;
+            const QString resolved = resolvedFileSystemPath(entry.absoluteFilePath());
+            const QString relative = rootDirectory.relativeFilePath(resolved);
+            if (resolved.isEmpty() || relative == ".." || relative.startsWith("../") || QDir::isAbsolutePath(relative)) continue;
             if (entry.isDir()) { if (!excluded.contains(entry.fileName())) folders.append(entry.absoluteFilePath()); continue; }
             if (!entry.isFile()) continue;
             if (entry.fileName().contains(keyword, Qt::CaseInsensitive)) {
