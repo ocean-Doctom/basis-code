@@ -2,6 +2,7 @@
 #include <QObject>
 #include <QString>
 #include <QPointer>
+#include <QStringConverter>
 class QDialog;
 class QMainWindow;
 class QProcess;
@@ -39,8 +40,13 @@ class DevTools : public QObject {
     void projectRequested(const QString &path);
     void activityChanged(bool busy);
     void executionFinished(int code);
+    void diagnosticRequested(const QString &path, int line, int column);
   private:
+    friend struct DevToolsTestAccess;
     void log(const QString &text);
+    void readProcessOutput(bool standardError);
+    void consumeProcessText(const QString &text, bool standardError);
+    void flushDiagnostics();
     void runExecutable();
     void updateProblems(const QString &line);
     void refreshProblemsBadge();
@@ -53,6 +59,8 @@ class DevTools : public QObject {
     QWidget *terminal = nullptr;
     QListWidget *problemsList = nullptr;
     int problemCount = 0;
+    QString stdoutDiagnostic, stderrDiagnostic;
+    QStringDecoder stdoutDecoder{QStringDecoder::System}, stderrDecoder{QStringDecoder::System};
     QStringList launchArguments;
     bool debugging = false;
     QString activeLanguage;

@@ -91,9 +91,10 @@ int main(int argc, char **argv) {
             waitFor(app, [&] { return output->toPlainText().contains(text); });
         };
         const QString python = temporary.filePath("hello space.py");
-        write(python, "value = 24\nprint('PYTHON_OK_' + str(value), flush=True)\n");
+        write(python, QString::fromUtf8("value = 24\nprint('PYTHON_OK_' + str(value), flush=True)\nprint('中文输出😀', flush=True)\n").toUtf8());
         run(python); finish();
         check(output->toPlainText().contains("PYTHON_OK_24"), "Python output");
+        check(output->toPlainText().contains(QString::fromUtf8("中文输出😀")), "Python UTF-8 output includes Chinese and astral Unicode");
         run(python, true); contains("(Pdb)");
         send("n"); contains("print(");
         send("p value"); contains("24\n");

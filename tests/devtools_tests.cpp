@@ -19,9 +19,36 @@
 #include <QPushButton>
 #include <QToolButton>
 #include <QMenu>
+#include <QListWidget>
 #include <iostream>
 #include <stdexcept>
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+struct DevToolsTestAccess {
+    static void diagnostics(DevTools &tools) {
+        tools.compiling = true;
+        tools.consumeProcessText("C:/sample.cpp:12:3: er", true);
+        check(tools.problemsList->count() == 0, "partial diagnostic is buffered");
+        tools.consumeProcessText("ror: bad token\n", true);
+        check(tools.problemsList->count() == 1, "split diagnostic reassembles once");
+        bool navigated = false;
+        auto connection = QObject::connect(&tools, &DevTools::diagnosticRequested, &tools, [&](const QString &path, int line, int col) {
+            navigated = path == "C:/sample.cpp" && line == 12 && col == 3;
+        });
+        tools.problemsList->itemActivated(tools.problemsList->item(0)); QObject::disconnect(connection);
+        check(navigated, "problem activation reports exact file line column");
+        tools.consumeProcessText("Example.java:4: error: unfinished", false);
+        tools.flushDiagnostics();
+        check(tools.problemsList->count() == 2 && tools.problemsList->item(1)->data(Qt::UserRole + 3).toInt() == 1, "unterminated Java diagnostics get line and default column");
+        tools.consumeProcessText(" 12 | int error = 0;\n1 error generated.\n", true);
+        check(tools.problemsList->count() == 2, "source excerpts and summary text do not duplicate problems");
+        tools.consumeProcessText("C:/sample.cpp:1:2: fatal error: missing header\n", true);
+        check(tools.problemsList->count() == 3, "fatal compiler error retains source coordinates");
+        tools.compiling = false;
+        tools.consumeProcessText("normal output: zero errors\n", false);
+        check(tools.problemsList->count() == 3, "program output is not a compiler problem");
+        tools.problemsList->clear(); tools.problemCount = 0; tools.refreshProblemsBadge(); tools.output->clear();
+    }
+};
 static void write(const QString &path, const QByteArray &data) {
     QFile file(path); check(file.open(QIODevice::WriteOnly), "open fixture"); check(file.write(data)==data.size(), "write fixture");
 }
@@ -40,6 +67,7 @@ int main(int argc, char **argv) {
         check(QFileInfo::exists(compiler),"test compiler exists");
         QSettings config(DevTools::dataRoot()+"/settings.ini",QSettings::IniFormat); config.setValue("toolchain/compiler",compiler); config.sync();
         QMainWindow window; DevTools tools(&window);
+        DevToolsTestAccess::diagnostics(tools);
         auto *output=window.findChild<QPlainTextEdit *>("runOutput"); check(output,"output panel exists");
         auto execute=[&](const QString &source, bool stop=false, bool feedInput=false) {
             QEventLoop loop; int result=-999;
@@ -131,12 +159,14 @@ int main(int argc, char **argv) {
               "terminal compiles and runs independently from the IDE runner");
         check(execute(cpp)==0 && output->toPlainText().contains("BASIS_CPP_OK"),"C++ compile and run with Unicode spaces path");
         const auto c=temp.filePath("hello.c");
-        write(c,"#include <stdio.h>\nint main(void){puts(\"BASIS_C_OK\");return 0;}\n");
+        write(c,"#include <stdio.h>\nint main(void){puts(\"BASIS_C_OK zero errors\");return 0;}\n");
         check(execute(c)==0 && output->toPlainText().contains("BASIS_C_OK"),"C selects gcc and runs");
+        check(window.findChild<QListWidget *>("problemsList")->count() == 0, "actual normal error-word output is not reported as a problem");
         write(cpp,"#include <iostream>\nint main(){int n;std::cin>>n;std::cout<<\"INPUT_\"<<(n*2);return 0;}\n");
         check(execute(cpp,false,true)==0 && output->toPlainText().contains("INPUT_48"),"program standard input");
         write(cpp,"this is invalid C++\n");
         check(execute(cpp)!=0 && !output->toPlainText().contains("BASIS_CPP_OK"),"compile errors never run stale executable");
+        check(window.findChild<QListWidget *>("problemsList")->count() > 0, "real compiler errors appear in problems panel");
         write(cpp,"#include <iostream>\n#include <thread>\n#include <chrono>\nint main(){std::cout<<\"READY\"<<std::endl;for(;;)std::this_thread::sleep_for(std::chrono::milliseconds(50));}\n");
         execute(cpp,true); check(output->toPlainText().contains(QString::fromUtf8("已停止")),"stop running process");
         std::cout<<"Passed storage and real C/C++ compilation checks\n";

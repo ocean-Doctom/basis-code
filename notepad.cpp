@@ -149,6 +149,14 @@ Notepad::Notepad(QWidget *parent) : QMainWindow(parent) {
     createWorkspace();
     createActions();
     devTools = new DevTools(this);
+    connect(devTools, &DevTools::diagnosticRequested, this, [this](const QString &path, int line, int column) {
+        if (!loadFile(path) || !editor || line <= 0) return;
+        const auto block = editor->document()->findBlockByNumber(line - 1);
+        if (!block.isValid()) return;
+        QTextCursor cursor(block);
+        cursor.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, qBound(0, column - 1, int(block.text().size())));
+        editor->setTextCursor(cursor); editor->centerCursor();
+    });
     connect(devTools, &DevTools::toolchainRequested, this, [this](const QString &language) { openToolkit(language, QString()); });
     connect(devTools, &DevTools::projectRequested, this, [this](const QString &path) {
         if (openProject(path)) {

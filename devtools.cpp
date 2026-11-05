@@ -696,21 +696,30 @@ DevTools::DevTools(QMainWindow *parent) : QObject(parent), window(parent) {
     dock->hide();
     process = new QProcess(this);
     connect(stopButton, &QPushButton::clicked, this, &DevTools::stop);
+    connect(problemsList, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+        const QString file = item->data(Qt::UserRole + 1).toString();
+        if (!file.isEmpty()) emit diagnosticRequested(QFileInfo(file).isAbsolute() ? file : QDir(workingDirectory).filePath(file),
+            item->data(Qt::UserRole + 2).toInt(), item->data(Qt::UserRole + 3).toInt());
+    });
     connect(input, &QLineEdit::returnPressed, this, [this] {
         if (process->state() == QProcess::Running && !compiling) {
             process->write(input->text().toUtf8()+"\n"); input->clear();
         }
     });
     connect(process, &QProcess::started, this, [this] {
+        stdoutDecoder = QStringDecoder(activeLanguage == "Python" ? QStringDecoder::Utf8 : QStringDecoder::System);
+        stderrDecoder = QStringDecoder(activeLanguage == "Python" ? QStringDecoder::Utf8 : QStringDecoder::System);
+        stdoutDiagnostic.clear(); stderrDiagnostic.clear();
         if (debugging && !compiling && activeLanguage == "Java")
             process->write(("stop in " + javaMainClass + ".main\nrun\n").toUtf8());
     });
-    connect(process, &QProcess::readyReadStandardOutput, this, [this] { log(QString::fromLocal8Bit(process->readAllStandardOutput())); });
-    connect(process, &QProcess::readyReadStandardError, this, [this] { log(QString::fromLocal8Bit(process->readAllStandardError())); });
+    connect(process, &QProcess::readyReadStandardOutput, this, [this] { readProcessOutput(false); });
+    connect(process, &QProcess::readyReadStandardError, this, [this] { readProcessOutput(true); });
     connect(process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) { log(tr("\n启动失败：")+process->errorString()); compiling=false; input->setEnabled(false); emit activityChanged(false); emit executionFinished(-1); }
     });
     connect(process, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
+        readProcessOutput(false); readProcessOutput(true); flushDiagnostics();
         if (compiling && !stopping && code == 0 && status == QProcess::NormalExit) {
             compiling=false; QTimer::singleShot(0, this, &DevTools::runExecutable); return;
         }
@@ -722,18 +731,36 @@ DevTools::~DevTools() { process->disconnect(this); stop(); process->waitForFinis
 bool DevTools::busy() const { return process->state() != QProcess::NotRunning || compiling; }
 void DevTools::log(const QString &text) {
     auto cursor = output->textCursor(); cursor.movePosition(QTextCursor::End); cursor.insertText(text); output->setTextCursor(cursor); output->ensureCursorVisible();
-    // 解析编译错误/警告，更新「问题」面板
-    const QStringList lines = text.split('\n');
-    for (const QString &line : lines)
-        if (!line.trimmed().isEmpty())
-            updateProblems(line);
+}
+void DevTools::readProcessOutput(bool standardError) {
+    const auto bytes = standardError ? process->readAllStandardError() : process->readAllStandardOutput();
+    const QString text = standardError ? stderrDecoder(bytes) : stdoutDecoder(bytes);
+    consumeProcessText(text, standardError);
+}
+void DevTools::consumeProcessText(const QString &text, bool standardError) {
+    log(text);
+    if (!compiling) return;
+    auto &pending = standardError ? stderrDiagnostic : stdoutDiagnostic;
+    pending += text;
+    int newline;
+    while ((newline = pending.indexOf('\n')) >= 0) {
+        const QString line = pending.left(newline).trimmed(); pending.remove(0, newline + 1);
+        if (!line.isEmpty()) updateProblems(line);
+    }
+    if (pending.size() > 65536) { updateProblems(pending.left(65536)); pending.clear(); }
+}
+void DevTools::flushDiagnostics() {
+    for (auto *pending : {&stdoutDiagnostic, &stderrDiagnostic}) {
+        if (compiling && !pending->trimmed().isEmpty()) updateProblems(pending->trimmed());
+        pending->clear();
+    }
 }
 
 void DevTools::updateProblems(const QString &line) {
-    if (!problemsList) return;
+    if (!problemsList || problemCount >= 1000) return;
     // 常见编译错误/警告模式：文件:行:列: 错误/警告: 描述
-    const QRegularExpression re(
-        R"(^(.+?):(\d+):(\d+):\s*(错误|警告|error|warning|Error|Warning):?\s*(.*)$)");
+    static const QRegularExpression re(
+        R"(^(.+?):(\d+):(?:(\d+):)?\s*(?:fatal\s+)?(错误|警告|error|warning|Error|Warning):?\s*(.*)$)");
     const auto m = re.match(line);
     if (m.hasMatch()) {
         const QString file = m.captured(1).trimmed();
@@ -744,14 +771,20 @@ void DevTools::updateProblems(const QString &line) {
             tr("%1 · %2").arg(isError ? tr("错误") : tr("警告"), msg));
         item->setToolTip(file);
         item->setData(Qt::UserRole, file + ":" + m.captured(2) + ":" + m.captured(3));
+        item->setData(Qt::UserRole + 1, file);
+        item->setData(Qt::UserRole + 2, m.captured(2).toInt());
+        item->setData(Qt::UserRole + 3, m.captured(3).isEmpty() ? 1 : m.captured(3).toInt());
         item->setForeground(isError ? QColor(0xc6, 0x2b, 0x2b) : QColor(0xb0, 0x7a, 0x00));
         problemsList->addItem(item);
         ++problemCount;
     } else {
-        // 宽松匹配：含 "error" 或 "错误" 的普通行也记入
+        // Driver/linker diagnostics without source coordinates. Do not count
+        // echoed source lines or compiler summary text as separate problems.
         const QString t = line.trimmed();
-        const bool hasError = t.contains("error", Qt::CaseInsensitive) || t.contains("错误");
-        const bool hasWarn = t.contains("warning", Qt::CaseInsensitive) || t.contains("警告");
+        static const QRegularExpression driver(R"(^(?:[^|]*?:\s*)?(?:fatal\s+)?(error|warning|错误|警告)\s*:)", QRegularExpression::CaseInsensitiveOption);
+        const auto diagnostic = driver.match(t);
+        const bool hasError = diagnostic.hasMatch() && (diagnostic.captured(1).compare("error", Qt::CaseInsensitive) == 0 || diagnostic.captured(1) == QString::fromUtf8("错误"));
+        const bool hasWarn = diagnostic.hasMatch() && !hasError;
         if (hasError || hasWarn) {
             auto *item = new QListWidgetItem(t);
             item->setForeground(hasError ? QColor(0xc6, 0x2b, 0x2b) : QColor(0xb0, 0x7a, 0x00));

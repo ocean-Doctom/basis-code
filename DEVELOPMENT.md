@@ -15,6 +15,13 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.4.1 diagnostics follow-up
+
+- Compiler diagnostics are assembled separately across stdout/stderr chunks; unterminated final lines are flushed at process completion. Ordinary program output containing words such as "error" no longer becomes a compiler problem.
+- Added Java line-only diagnostics alongside C/C++ line/column messages. Problem activation opens the exact source location in the editor.
+- Process text uses stateful decoders; Python follows its explicitly configured UTF-8 environment. Local Python/PDB checks now include Chinese and astral Unicode output; local Java/JDB and compile-failure checks continue to pass.
+- Tests cover split diagnostics, final-line flushing, false-positive runtime text, actual compiler problems and editor navigation. The problem list is capped at 1,000 items.
+
 ## 1.4.0 large-document follow-up
 
 - Added automatic large-document syntax downgrade above 20 * 1024 * 1024 UTF-16 units or 100,000 text blocks, following the workload-threshold principle studied in VS Code's text model.

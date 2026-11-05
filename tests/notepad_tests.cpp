@@ -1,4 +1,5 @@
 #include "notepad.h"
+#include "devtools.h"
 #include <QAbstractButton>
 #include <QAction>
 #include <QListWidget>
@@ -625,6 +626,15 @@ int main(int argc, char *argv[]) {
             pluginTabs->currentWidget()->findChild<QPushButton *>("applyDocumentFormat")->click();
             check(second->toPlainText().contains("    \"b\": 2") && first->toPlainText() == "{\"a\":1}", "formatter updates selected source only");
             second->undo();
+            const QString diagnostic = temporary.filePath("diagnostic.cpp");
+            writeText(diagnostic, "// first line\nint wrong = ;\n");
+            auto *developmentTools = pluginWindow.findChild<DevTools *>();
+            check(developmentTools, "development service available for navigation");
+            developmentTools->diagnosticRequested(diagnostic, 2, 5);
+            auto *diagnosticEditor = qobject_cast<QPlainTextEdit *>(pluginTabs->currentWidget());
+            check(pluginWindow.currentFilePath() == diagnostic && diagnosticEditor &&
+                      diagnosticEditor->textCursor().blockNumber() == 1 && diagnosticEditor->textCursor().positionInBlock() == 4,
+                  "problem navigation opens the correct file line and column");
             if (qEnvironmentVariableIsSet("BASIS_EXTENSION_PREVIEW_PREFIX")) {
                 const QString prefix = qEnvironmentVariable("BASIS_EXTENSION_PREVIEW_PREFIX");
                 pluginWindow.show();
