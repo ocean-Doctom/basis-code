@@ -1,0 +1,1 @@
+GitHub Dark Default is adapted from https://github.com/primer/github-vscode-theme (MIT), src/theme.js and src/colors.js, using @primer/primitives 7.10.0 dark colors with the upstream foreground overrides. Qt widget and lexical token mappings are implemented locally.

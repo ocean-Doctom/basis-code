@@ -1,6 +1,8 @@
 #include "notepad.h"
 #include <QAbstractButton>
 #include <QAction>
+#include <QListWidget>
+#include <QLineEdit>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QFile>
@@ -10,12 +12,20 @@
 #include <QFileSystemModel>
 #include <QFontMetricsF>
 #include <QThread>
+#include <QSplitter>
 #include <QTreeView>
 
 #include <QMessageBox>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTemporaryDir>
+#include <QSettings>
+#include <QLabel>
+#include <QInputDialog>
+#include <QTextBrowser>
+#include <QScrollArea>
+#include <QPushButton>
+#include <QMenu>
 #include <QTextDocument>
 #include <QPlainTextEdit>
 #include <QTimer>
@@ -27,6 +37,7 @@
 #endif
 #include <windows.h>
 #include <windowsx.h>
+#include <dwmapi.h>
 #endif
 #include <cstdlib>
 #include <iostream>
@@ -72,6 +83,7 @@ static void writeText(const QString &path, const QByteArray &text) {
 int main(int argc, char *argv[]) {
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
+    if (!app.arguments().contains("--webview-smoke")) qputenv("BASIS_DISABLE_WEBVIEW", "1");
     QTimer::singleShot(20000, [] {
         std::cerr << "Timeout\n";
         std::exit(2);
@@ -79,9 +91,48 @@ int main(int argc, char *argv[]) {
     try {
         QTemporaryDir temporary;
         check(temporary.isValid(), "temporary directory");
+        qputenv("BASIS_CODE_HOME", temporary.filePath("app-data").toUtf8());
+        QSettings history(temporary.filePath("app-data/settings.ini"), QSettings::IniFormat);
+        history.setValue("agents/default", "chatgpt");
+        history.setValue("projects/recent", QStringList{temporary.path(), temporary.filePath("missing-project")});
+        history.sync();
+        {
+            QTemporaryDir firstUse;
+            qputenv("BASIS_CODE_HOME", firstUse.path().toUtf8());
+            {
+                Notepad onboarding;
+                onboarding.show(); app.processEvents();
+                check(onboarding.findChild<QWidget *>("defaultAgentChooser"), "first launch asks for default agent");
+                auto *choice = onboarding.findChild<QPushButton *>("chooseDeepSeek");
+                check(choice && !choice->icon().isNull(), "DeepSeek has a native icon on chooser");
+                if (qEnvironmentVariableIsSet("BASIS_AGENT_PREVIEW_PATH"))
+                    check(onboarding.grab().save(qEnvironmentVariable("BASIS_AGENT_PREVIEW_PATH")), "render agent chooser");
+                choice->click(); app.processEvents();
+                check(onboarding.findChild<QWidget *>("deepseekPage"), "choosing DeepSeek opens native chat");
+                check(onboarding.findChild<QAction *>("actionDefaultDeepSeek")->isChecked(), "default agent menu reflects selection");
+                if (qEnvironmentVariableIsSet("BASIS_DEEPSEEK_PREVIEW_PATH")) {
+                    onboarding.findChild<QAction *>("actionGitHubDarkTheme")->trigger(); app.processEvents();
+                    check(onboarding.grab().save(qEnvironmentVariable("BASIS_DEEPSEEK_PREVIEW_PATH")), "render DeepSeek");
+                }
+            }
+            {
+                Notepad returning;
+                check(returning.findChild<QWidget *>("deepseekPage") && !returning.findChild<QWidget *>("defaultAgentChooser"),
+                      "restart remembers selected default agent");
+                returning.findChild<QAction *>("actionDefaultChatGPT")->trigger();
+                check(returning.findChild<QWidget *>("chatgptPage"), "preferences switch default agent");
+            }
+        }
+        qputenv("BASIS_CODE_HOME", temporary.filePath("app-data").toUtf8());
         Notepad window;
         window.show();
         app.processEvents();
+        if (qEnvironmentVariableIsSet("BASIS_CHAT_PREVIEW_PATH")) {
+            window.findChild<QAction *>("actionGitHubDarkTheme")->trigger();
+            app.processEvents();
+            check(window.grab().save(qEnvironmentVariable("BASIS_CHAT_PREVIEW_PATH")), "render native ChatGPT welcome");
+            window.findChild<QAction *>("actionLightTheme")->trigger();
+        }
         auto *titleBar = window.findChild<QFrame *>("windowTitleBar");
         auto *minimize = window.findChild<QToolButton *>("windowMinimize");
         auto *maximize = window.findChild<QToolButton *>("windowMaximize");
@@ -95,10 +146,11 @@ int main(int argc, char *argv[]) {
               "title bar spans the full window at the top");
         maximize->click();
         app.processEvents();
-        check(window.isMaximized(), "maximize button maximizes window");
+        check(window.isMaximized() && window.mask().isEmpty(), "maximized window uses full rectangular area");
         maximize->click();
         app.processEvents();
-        check(!window.isMaximized(), "maximize button restores window");
+        check(!window.isMaximized() && window.mask().isEmpty(),
+              "restored window keeps native compositor smoothing");
         QMouseEvent doubleClick(QEvent::MouseButtonDblClick, QPointF(250, 20),
                                 QPointF(titleBar->mapToGlobal(QPoint(250, 20))),
                                 Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
@@ -114,6 +166,15 @@ int main(int argc, char *argv[]) {
 #ifdef Q_OS_WIN
         if (QApplication::platformName() == "windows") {
             const HWND handle = reinterpret_cast<HWND>(window.winId());
+            DWORD cornerPreference = 0;
+            const HRESULT cornerResult = DwmGetWindowAttribute(handle, 33, &cornerPreference, sizeof(cornerPreference));
+            if (SUCCEEDED(cornerResult)) {
+                check(cornerPreference == 2, "native compositor rounds restored window");
+                const COLORREF noBorder = 0xfffffffe;
+                check(SUCCEEDED(DwmSetWindowAttribute(handle, 34, &noBorder, sizeof(noBorder))),
+                      "compositor accepts border suppression");
+
+            }
             RECT frame;
             check(GetWindowRect(handle, &frame), "query native window frame");
             const LRESULT edge =
@@ -138,19 +199,130 @@ int main(int argc, char *argv[]) {
         auto activeEditor = [tabs] {
             return qobject_cast<QPlainTextEdit *>(tabs->currentWidget());
         };
-        check(tabs->count() == 1, "initial single document");
+        check(tabs->count() == 1 && tabs->tabText(0) == "ChatGPT" &&
+                  !activeEditor() && !newAction->isEnabled() &&
+                  !window.findChild<QToolButton *>("addTabButton")->isEnabled(),
+              "startup opens ChatGPT and new files require a project");
+        auto *extensionsList = window.findChild<QListWidget *>("extensionList");
+        const auto chat = extensionsList->findItems("ChatGPT", Qt::MatchExactly);
+        check(chat.size() == 1, "ChatGPT is a preinstalled plugin");
+        extensionsList->itemClicked(chat.first());
+        check(tabs->count() == 1, "opening ChatGPT reuses its tab");
+        newAction->trigger();
+        check(tabs->count() == 1, "new action cannot create a document without a project");
+        check(window.findChild<QScrollArea *>("chatgptMessages") &&
+                  window.findChild<QPlainTextEdit *>("chatgptInput") &&
+                  !window.findChild<QPushButton *>("chatgptSend")->isEnabled(),
+              "ChatGPT provides native Qt chat controls and requires login");
+        closeAction->trigger();
+        auto *recent = window.findChild<QListWidget *>("recentProjects");
+        check(recent && recent->count() == 2 &&
+                  !(recent->item(1)->flags() & Qt::ItemIsEnabled),
+              "recent projects include usable and unavailable paths");
+        recent->itemClicked(recent->item(0));
+        QElapsedTimer projectClick;
+        projectClick.start();
+        while (!tree->isVisible() && projectClick.elapsed() < 1500) {
+            app.processEvents(); QThread::msleep(10);
+        }
+        check(newAction->isEnabled() && tree->isVisible(),
+              "clicking a recent project opens the project folder");
+        check(tabs->count() == 0, "opening a project does not create an untitled document");
+        window.findChild<QToolButton *>("backToProjects")->click();
+        check(recent->isVisible(), "project explorer returns to recent projects");
+        QTimer::singleShot(0, [] {
+            auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+            if (!dialog) std::exit(2);
+            dialog->setTextValue(QString::fromUtf8("我的示例项目"));
+            dialog->accept();
+        });
+        recent->itemDoubleClicked(recent->item(0));
+        check(recent->item(0)->text().startsWith(QString::fromUtf8("我的示例项目")) &&
+                  QFileInfo::exists(temporary.path()), "project alias preserves its folder name");
+        check(window.openProject(temporary.path()), "return to renamed project alias");
+        window.findChild<QAction *>("actionDarkTheme")->trigger();
+        check(window.palette().color(QPalette::Text).name() == "#c0caf5", "dark theme selected");
+        window.findChild<QAction *>("actionLightTheme")->trigger();
+        check(window.palette().color(QPalette::Text).name() == "#26334d", "light theme selected");
+        window.findChild<QAction *>("actionGitHubDarkTheme")->trigger();
+        check(window.palette().color(QPalette::Base).name() == "#0d1117" &&
+                  window.palette().color(QPalette::Text).name() == "#e6edf3", "GitHub Dark Default palette selected");
+        check(!window.findChild<QToolButton *>("openProjectButton") &&
+                  window.findChild<QToolButton *>("backToProjects")->parentWidget() ==
+                      window.findChild<QLabel *>("projectName")->parentWidget(),
+              "back arrow shares the project-name row and old open-folder button is removed");
+        window.findChild<QAction *>("actionLightTheme")->trigger();
+        newAction->trigger();
+        check(tabs->count() == 1, "new document can be created inside project");
         auto *firstEditor = activeEditor();
+        auto *extensions = window.findChild<QToolButton *>("extensionsButton");
+        auto *list = window.findChild<QListWidget *>("extensionList");
+        auto *search = window.findChild<QLineEdit *>("extensionSearch");
+        check(extensions && list && search, "extension marketplace exists");
+        extensions->click();
+        auto *cpp = list->item(0);
+        for (const QString &language : {"C/C++", "Java", "Python"}) {
+            const auto matches = list->findItems(language, Qt::MatchContains);
+            check(matches.size() == 1 && matches.first()->text() == language &&
+                      !matches.first()->icon().pixmap(22, 22).isNull(),
+                  "catalog shows the language name and icon");
+            search->setText(language.toLower());
+            check(!matches.first()->isHidden(), "language toolkit matches search");
+            list->itemClicked(matches.first());
+            check(tabs->tabText(tabs->currentIndex()) == matches.first()->text(),
+                  "language opens its own details");
+            check(tabs->currentWidget()->findChild<QWidget *>("toolchainConfiguration") &&
+                      !tabs->currentWidget()->findChild<QDialog *>(),
+                  "language configuration is embedded in its detail page");
+            if (language == "Java" && qEnvironmentVariableIsSet("BASIS_CONFIG_PREVIEW_PATH")) {
+                window.findChild<QAction *>("actionGitHubDarkTheme")->trigger();
+                app.processEvents();
+                check(window.grab().save(qEnvironmentVariable("BASIS_CONFIG_PREVIEW_PATH")), "render inline runtime configuration");
+                window.findChild<QAction *>("actionLightTheme")->trigger();
+            }
+            closeAction->trigger();
+        }
+        search->setText("Python");
+        check(cpp->isHidden(), "search hides unrelated packages");
+        search->setText("c++");
+        check(!cpp->isHidden(), "case insensitive search restores package");
+        list->itemClicked(cpp);
+        check(tabs->count() == 2 && tabs->tabText(1) == cpp->text() &&
+                  !activeEditor() && list->isVisible() && !saveAction->isEnabled(),
+              "details open beside code while catalog stays visible");
+        check(window.findChild<QSplitter *>("codeOutputSplitter")->parentWidget()->objectName() == "mainArea" &&
+                  window.findChild<QWidget *>("runOutputDock")->parentWidget() == window.findChild<QSplitter *>("codeOutputSplitter"),
+              "run output belongs to the right code area");
+        if (qEnvironmentVariableIsSet("BASIS_PREVIEW_PATH"))
+            check(window.grab().save(qEnvironmentVariable("BASIS_PREVIEW_PATH")),
+                  "render toolkit page");
+        tabs->setCurrentWidget(firstEditor);
+        list->itemActivated(cpp);
+        check(tabs->count() == 2 && tabs->currentIndex() == 1,
+              "reopening focuses existing toolkit tab");
+        closeAction->trigger();
+        check(tabs->count() == 1 && activeEditor() == firstEditor,
+              "closing toolkit returns to editor");
         check(window.openProject(temporary.path()), "open project directory");
+        check(tree->isVisible() && !extensions->isChecked(),
+              "opening a project switches back to explorer");
         check(model->filePath(tree->rootIndex()) == temporary.path(),
               "file tree rooted at chosen project");
         check(!window.openProject(temporary.filePath("missing")),
               "invalid folder leaves current project intact");
         check(firstEditor->lineWrapMode() == QPlainTextEdit::NoWrap,
               "code editor starts without line wrapping");
-        const QFontMetricsF metrics(firstEditor->font());
-        check(qAbs(metrics.horizontalAdvance('i') -
-                   metrics.horizontalAdvance('W')) < 0.1,
-              "code font has equal-width Latin characters");
+        check(firstEditor->font().pointSize() == 12 &&
+                  QFontMetricsF(firstEditor->font()).horizontalAdvance('i') == QFontMetricsF(firstEditor->font()).horizontalAdvance('W'),
+              "editor restores the original monospace font");
+        auto *zoomIn = window.findChild<QAction *>("actionZoomIn");
+        auto *zoomOut = window.findChild<QAction *>("actionZoomOut");
+        zoomIn->trigger();
+        check(firstEditor->font().pointSize() == 13 && window.font().pointSize() == 11,
+              "zoom increases editor and application font size");
+        zoomOut->trigger();
+        check(firstEditor->font().pointSize() == 12 && window.font().pointSize() == 10,
+              "zoom decreases editor and application font size");
         const QString text =
             QString::fromUtf8("中文文件测试 😀\nsecond line\n");
         const QString first =
@@ -339,6 +511,40 @@ int main(int argc, char *argv[]) {
         check(discardClose.isAccepted() && prompts == 2,
               "exit checks every dirty document");
 
+        {
+            Notepad renameWindow;
+            renameWindow.show();
+            const QString before = temporary.filePath("rename-before");
+            const QString after = temporary.filePath("rename-after");
+            check(QDir().mkpath(before), "rename fixture");
+            writeText(before + "/main.cpp", "int main() {}");
+            check(renameWindow.openProject(before) && renameWindow.loadFile(before + "/main.cpp"), "open rename fixture");
+            auto *renameTabs = renameWindow.findChild<QTabWidget *>("documentTabs");
+            auto *renameEditor = qobject_cast<QPlainTextEdit *>(renameTabs->currentWidget());
+            renameEditor->insertPlainText("// pending\\n");
+            QTimer::singleShot(0, [] {
+                auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+                if (!menu) std::exit(2);
+                QAction *rename = nullptr;
+                for (auto *action : menu->actions())
+                    if (action->text() == QString::fromUtf8("修改文件夹名称…")) rename = action;
+                if (!rename) std::exit(2);
+                menu->close();
+                QTimer::singleShot(0, [] {
+                    auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+                    if (!dialog) std::exit(2);
+                    dialog->setTextValue("rename-after");
+                    dialog->accept();
+                });
+                rename->trigger();
+            });
+            auto *projectName = renameWindow.findChild<QLabel *>("projectName");
+            projectName->customContextMenuRequested(QPoint(1, 1));
+            check(QFileInfo::exists(after + "/main.cpp") && !QFileInfo::exists(before) &&
+                      renameWindow.currentFilePath() == after + "/main.cpp" &&
+                      renameEditor->document()->isModified(), "folder rename preserves unsaved document and updates its path");
+            check(renameWindow.saveFile(after + "/main.cpp"), "save document after folder rename");
+        }
         const QString demoRoot = temporary.filePath("tiny-editor");
         check(QDir().mkpath(demoRoot + "/src") &&
                   QDir().mkpath(demoRoot + "/include"),
@@ -366,7 +572,7 @@ int main(int argc, char *argv[]) {
         check(preview.loadFile(demoRoot + "/include/project.h"),
               "open second source tab");
         auto *previewTabs = preview.findChild<QTabWidget *>("documentTabs");
-        previewTabs->setCurrentIndex(0);
+        previewTabs->setCurrentIndex(1);
         auto *previewModel =
             preview.findChild<QFileSystemModel *>("projectModel");
         QElapsedTimer loaded;
@@ -382,8 +588,24 @@ int main(int argc, char *argv[]) {
         previewTree->expand(previewModel->index(demoRoot + "/src"));
         previewTree->expand(previewModel->index(demoRoot + "/include"));
         app.processEvents();
+        auto *runPanel = preview.findChild<QWidget *>("runOutputDock");
+        runPanel->show();
+        app.processEvents();
+        check(runPanel->mapTo(&preview, QPoint()).x() == previewTabs->mapTo(&preview, QPoint()).x() &&
+                  runPanel->width() == previewTabs->width() &&
+                  runPanel->mapTo(&preview, QPoint()).y() >= previewTabs->mapTo(&preview, QPoint()).y() + previewTabs->height(),
+              "run panel is aligned underneath code tabs");
         check(preview.grab().save("notepad-preview.png"),
               "render code editor preview");
+        if (qEnvironmentVariableIsSet("BASIS_THEME_PREVIEW_PREFIX")) {
+            const QString prefix = qEnvironmentVariable("BASIS_THEME_PREVIEW_PREFIX");
+            preview.findChild<QAction *>("actionGitHubDarkTheme")->trigger();
+            app.processEvents();
+            check(preview.grab().save(prefix + "-dark.png"), "render dark preview");
+            preview.findChild<QAction *>("actionLightTheme")->trigger();
+            app.processEvents();
+            check(preview.grab().save(prefix + "-light.png"), "render light preview");
+        }
         std::cout << "Passed " << checks << " checks\n";
         return 0;
     } catch (const std::exception &error) {

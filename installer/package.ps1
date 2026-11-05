@@ -1,0 +1,43 @@
+param(
+    [Parameter(Mandatory=$true)][string]$MakeNsis,
+    [string]$OutputDirectory = "$PSScriptRoot\..\build\installers",
+    [string]$QtRoot = 'C:\Qt\6.12.0\mingw_64',
+    [string]$CompilerRoot = 'C:\Qt\Tools\mingw1310_64',
+    [string]$CMake = 'C:\Qt\Tools\CMake_64\bin\cmake.exe',
+    [string]$Ninja = 'C:\Qt\Tools\Ninja\ninja.exe'
+)
+$ErrorActionPreference = 'Stop'
+$project = Split-Path $PSScriptRoot
+$build = Join-Path $project 'build\release-package'
+$env:PATH = "$QtRoot\bin;$CompilerRoot\bin;$env:PATH"
+& $CMake -S $project -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF "-DCMAKE_CXX_COMPILER=$CompilerRoot/bin/g++.exe" "-DCMAKE_MAKE_PROGRAM=$Ninja" "-DCMAKE_PREFIX_PATH=$QtRoot"
+if ($LASTEXITCODE) { throw 'Release configuration failed' }
+& $CMake --build $build --parallel 4
+if ($LASTEXITCODE) { throw 'Release build failed' }
+# Each package gets a fresh staging directory, so old files cannot leak into it.
+$stage = Join-Path $project ('build\package-' + [guid]::NewGuid().ToString('N'))
+$payload = Join-Path $stage 'payload'
+New-Item -ItemType Directory -Force $payload,$OutputDirectory | Out-Null
+Copy-Item -LiteralPath "$build\QtApp.exe" -Destination "$payload\BasisCode.exe"
+Get-ChildItem $build -Filter '*.dll' -File | Copy-Item -Destination $payload
+foreach ($folder in @('platforms','styles','imageformats','iconengines','generic','networkinformation','tls')) {
+    if (Test-Path "$build\$folder") { Copy-Item -LiteralPath "$build\$folder" -Destination $payload -Recurse }
+}
+New-Item -ItemType Directory "$payload\licenses" | Out-Null
+Copy-Item "$PSScriptRoot\licenses\*" "$payload\licenses" -Recurse
+Copy-Item "$project\themes\GitHub-LICENSE" "$payload\licenses\GitHub-theme.txt"
+Copy-Item "$project\icons\SOURCES.md" "$payload\licenses\icons.md"
+Copy-Item "$project\themes\SOURCES.md" "$payload\licenses\themes.md"
+if (Test-Path "$QtRoot\LICENSES") { Copy-Item "$QtRoot\LICENSES" "$payload\licenses\Qt" -Recurse }
+$lines = @(Get-ChildItem $payload -Recurse -File | ForEach-Object {
+    'Delete "$INSTDIR\' + $_.FullName.Substring($payload.Length + 1) + '"'
+})
+$lines += @(Get-ChildItem $payload -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object {
+    'RMDir "$INSTDIR\' + $_.FullName.Substring($payload.Length + 1) + '"'
+})
+$lines | Set-Content -LiteralPath "$stage\uninstall-files.nsh" -Encoding utf8
+& $MakeNsis "/DPAYLOAD=$payload" "/DOUTPUT=$OutputDirectory" "$PSScriptRoot\setup.nsi"
+if ($LASTEXITCODE) { throw 'Installer compilation failed' }
+$installer = Join-Path $OutputDirectory 'BasisCode-Setup-1.0.0-x64.exe'
+(Get-FileHash $installer -Algorithm SHA256).Hash + '  ' + (Split-Path $installer -Leaf) | Set-Content "$installer.sha256" -Encoding ascii
+Write-Output "Installer: $installer"

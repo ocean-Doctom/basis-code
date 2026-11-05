@@ -1,0 +1,18 @@
+Basis Code 1.0.0 - third-party components
+
+Qt 6.12.0 (Core, Gui, Widgets, Network, PrintSupport, Svg and deployment plugins)
+Qt is dynamically linked. Copyright The Qt Company Ltd. and other contributors.
+License texts are included in this directory. Qt source and module notices:
+https://download.qt.io/archive/qt/6.12/6.12.0/single/
+https://code.qt.io/cgit/qt/qtbase.git/tree/?h=v6.12.0
+https://code.qt.io/cgit/qt/qtsvg.git/tree/?h=v6.12.0
+https://www.qt.io/licensing/open-source-lgpl-obligations
+The shared Qt libraries may be replaced with compatible versions.
+
+MinGW GCC 13.1.0 runtime libraries (libgcc, libstdc++, winpthreads)
+https://gcc.gnu.org/releases/gcc-13.1.0/
+https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html
+https://www.mingw-w64.org/
+
+Icon and theme attributions are included in icons.md and themes.md.
+Language toolchains are installed separately by the user.
