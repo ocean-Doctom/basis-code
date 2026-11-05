@@ -1,4 +1,5 @@
 #include "notepad.h"
+#include "appversion.h"
 #include <QApplication>
 #include <QFileInfo>
 

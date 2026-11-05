@@ -29,7 +29,8 @@ add_executable(QtApp WIN32
 )
 
 target_link_libraries(QtApp PRIVATE Qt6::Widgets Qt6::PrintSupport Qt6::Network)
-target_compile_definitions(QtApp PRIVATE BASIS_CODE_VERSION="${PROJECT_VERSION}")
+configure_file(appversion.h.in "${CMAKE_CURRENT_BINARY_DIR}/generated/appversion.h" @ONLY)
+target_include_directories(QtApp PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_BINARY_DIR}/generated>")
 set(WORKSPACE_ASSETS icons/deepseek-original.ico icons/language-chatgpt.svg icons/language-cpp.svg icons/language-java.svg icons/language-python.svg icons/dropdown.svg icons/dropdown-light.svg icons/run.svg theme.qss theme-dark.qss theme-github-dark.qss close.svg icons/files.svg icons/extensions.svg
     icons/minimize.svg icons/maximize.svg icons/restore.svg icons/settings.svg icons/basis-code.ico icons/terminal.svg)
 qt_add_resources(QtApp workspace_assets PREFIX "/" FILES ${WORKSPACE_ASSETS})

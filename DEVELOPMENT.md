@@ -15,6 +15,13 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.4.3 build follow-up
+
+- Moved the version macro from target-wide compiler definitions to a generated header included only by main.cpp. APP_VERSION.txt remains the single version source.
+- Verified a version-only change with Ninja dry-run: exactly main.cpp compilation and application linking were scheduled, instead of recompiling every application translation unit.
+- The generated include directory applies only to C++, avoiding windres preprocessing trouble with this project's space-containing path. Full build and five regression groups passed after the configuration change.
+- This is a developer build-time improvement; runtime features retain 1.4.2 behavior.
+
 ## 1.4.2 execution-state follow-up
 
 - The compiler-to-launch event gap now remains busy until execution actually starts, preventing a second build from overwriting pending launch information.
