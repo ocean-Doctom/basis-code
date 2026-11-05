@@ -23,6 +23,7 @@ Source license: Apache-2.0. Publisher: ocean-Doctom.
 - Agent command processes are hidden and assigned a Windows job when available so descendants are cleaned up when the tool completes. PowerShell propagates native exit codes and no longer appends an unrelated completion marker.
 - Regression coverage includes an actual temporary Windows junction, subdirectory listing, recursive content exclusion, native command output and a native exit-code 7 failure.
 - Packaging rejects uncommitted source by default. Explicit local `-AllowDirty` builds record sourceDirty in release.json; published builds use a clean committed tree.
+- Additional local validation used an existing Python interpreter and Android Studio's bundled complete JDK: Python/PDB run, step, variable and continue; Java/JDB compile, breakpoint, next, locals and continue; Java compile failure blocks stale output. No downloads were performed. The test harness now checks stable prompts/source text instead of English-only JDB messages, because this JDK outputs Chinese.
 
 ## Verified changes
 

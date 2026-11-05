@@ -107,8 +107,10 @@ int main(int argc, char **argv) {
         write(java, "public class BasisJava {\n public static void main(String[] args) {\n int value = 24;\n System.out.println(\"JAVA_OK_\" + value);\n }\n}\n");
         run(java); finish();
         check(output->toPlainText().contains("JAVA_OK_24"), "Java output");
-        run(java, true); contains("Breakpoint hit:");
-        send("next"); contains("Step completed:");
+        // JDB messages are localized by the selected JDK; thread prompts and
+        // our source text remain stable across English/Chinese installations.
+        run(java, true); contains("main[1]");
+        send("next"); contains("System.out.println");
         send("locals"); contains("value = 24");
         send("cont"); finish();
         check(output->toPlainText().contains("JAVA_OK_24"), "Java debugger ran program");
@@ -116,7 +118,8 @@ int main(int argc, char **argv) {
         run(java);
         waitFor(app, [&] { return exitCode != -999; });
         check(exitCode != 0 && !output->toPlainText().contains("JAVA_OK_24"), "Java compile error prevents stale run");
-        std::cout << "Passed real downloads, installation, execution and debugger checks" << std::endl;
+        std::cout << (download ? "Passed downloads, installation, execution and debugger checks" :
+                     "Passed local Python/Java execution, debugger and compile-failure checks (no downloads)") << std::endl;
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << std::endl;

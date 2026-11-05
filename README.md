@@ -117,6 +117,8 @@ Windows 构建会自动执行 `windeployqt`，将匹配的运行库和插件放�
 
 Java 和 Python 在对应语言扩展页中配置。F5 运行当前文件，Shift+F5 调试。PDB 可输入 b 行号、n、c、p 变量；JDB 可输入 stop at 类名:行号、next、cont、locals。Java 需要完整 JDK，选择其中的 bin/javac.exe。
 
+本机 Python/PDB 和完整 JDK/中文 JDB 的实际运行、断点、单步、变量查看与继续执行均已验证，Java 编译失败会阻止运行旧产物。可通过 `BASIS_TEST_PYTHON` 和 `BASIS_TEST_JAVAC` 指向已有工具，运行 `build/LanguageTests.exe` 复验；不带 `--download` 时不下载安装包，配置与源码使用临时目录。
+
 ChatGPT 接入依据为 OpenAI 官方文档 https://developers.openai.com/siwc/token-sharing-open-source/sign-in 与 https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference 。主题配色参考 https://github.com/tokyo-night/tokyo-night-vscode-theme 。ChatGPT 图标取自官网原始资源，保留原图形。
 
 ChatGPT 原生界面采用居中欢迎语、限宽消息列表、右侧用户气泡和圆角输入框；新对话时输入框居中，开始聊天后在底部显示。账号登录、切换和退出收纳到右上角账户菜单。
