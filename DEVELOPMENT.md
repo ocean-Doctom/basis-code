@@ -15,6 +15,13 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.4.4 file-operation follow-up
+
+- Directory deletion now checks every affected document before touching disk; cancelling a save prompt aborts deletion. Tabs are removed only after successful deletion, including individual-file deletion. Failed deletion leaves open buffers available.
+- Renaming and cutting update open document paths, names and syntax detection while preserving dirty text and undo state. Moves use filesystem rename; failed or cross-volume moves preserve the source and report the limitation rather than copying and deleting without checking removal.
+- Copying a directory into itself or a descendant is rejected before creating a destination. Windows destination checks resolve junctions. Directory copies include hidden entries; linked entries are reported as incomplete rather than silently omitting their contents.
+- Temporary-project regression tests cover recursive-copy rejection, a dirty document across directory move and extension rename, cancellation of directory deletion and confirmed single-file deletion.
+
 ## 1.4.3 build follow-up
 
 - Moved the version macro from target-wide compiler definitions to a generated header included only by main.cpp. APP_VERSION.txt remains the single version source.

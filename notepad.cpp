@@ -1,4 +1,6 @@
 #include "notepad.h"
+#include "filesystempaths.h"
+#include <filesystem>
 #include "codeeditor.h"
 #include "chatgptpage.h"
 #include "devtools.h"
@@ -108,14 +110,37 @@ static bool samePath(const QString &first, const QString &second) {
 #endif
 }
 
+static bool pathAtOrBelow(const QString &path, const QString &root) {
+    if (path.isEmpty() || root.isEmpty()) return false;
+    const QString prefix = QDir::cleanPath(root) + "/";
+#ifdef Q_OS_WIN
+    return samePath(path, root) || path.startsWith(prefix, Qt::CaseInsensitive);
+#else
+    return samePath(path, root) || path.startsWith(prefix);
+#endif
+}
+
+static bool moveFileSystemEntry(const QString &source, const QString &target) {
+    std::error_code error;
+#ifdef Q_OS_WIN
+    std::filesystem::rename(std::filesystem::path(source.toStdWString()),
+                            std::filesystem::path(target.toStdWString()), error);
+#else
+    std::filesystem::rename(std::filesystem::path(source.toStdString()),
+                            std::filesystem::path(target.toStdString()), error);
+#endif
+    return !error;
+}
+
 static bool copyDirRecursive(const QString &src, const QString &dst) {
     if (!QDir().mkpath(dst)) return false;
-    QDirIterator it(src, QDir::AllEntries | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    QDirIterator it(src, QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         const QString source = it.next();
         const QString relative = QDir(src).relativeFilePath(source);
         const QString target = QDir(dst).filePath(relative);
         const QFileInfo info(source);
+        if (info.isSymLink() || info.isJunction()) return false;
         if (info.isDir()) {
             if (!QDir().mkpath(target)) return false;
         } else {
@@ -1209,20 +1234,43 @@ void Notepad::deleteTreeItem(const QString &path) {
         tr("确定要删除“%1”吗？此操作不可撤销。").arg(name),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     if (confirm != QMessageBox::Yes) return;
-    bool ok = false;
-    if (info.isDir()) {
-        // 若删除的目录里含当前打开的文件，先关闭对应标签页。
-        for (int i = tabs->count() - 1; i >= 0; --i) {
-            auto *page = qobject_cast<QPlainTextEdit *>(tabs->widget(i));
-            if (!page) continue;
-            const QString filePath = page->property("filePath").toString();
-            if (filePath.startsWith(normalizedPath(path) + "/")) closeTab(i);
-        }
-        ok = QDir(path).removeRecursively();
-    } else {
-        ok = QFile::remove(path);
+    QList<QPointer<QPlainTextEdit>> affected;
+    const QString source = normalizedPath(path);
+    for (int i = 0; i < tabs->count(); ++i) {
+        auto *page = qobject_cast<QPlainTextEdit *>(tabs->widget(i));
+        if (!page || !pathAtOrBelow(page->property("filePath").toString(), source)) continue;
+        affected.append(page);
+        tabs->setCurrentWidget(page);
+        if (!maybeSave()) return;
     }
-    if (!ok) QMessageBox::warning(this, tr("删除失败"), tr("文件或文件夹可能正在被其他程序占用。"));
+    const bool ok = info.isDir() ? QDir(path).removeRecursively() : QFile::remove(path);
+    if (!ok) {
+        QMessageBox::warning(this, tr("删除失败"), tr("文件或文件夹可能正在被其他程序占用。"));
+        return;
+    }
+    for (const auto &page : affected) {
+        // Save As may have moved a document outside the deleted directory.
+        if (!page || !pathAtOrBelow(page->property("filePath").toString(), source)) continue;
+        tabs->removeTab(tabs->indexOf(page));
+        page->deleteLater();
+    }
+    syncDocuments();
+    updateStatus();
+}
+
+void Notepad::relocateOpenDocuments(const QString &source, const QString &target) {
+    for (int i = 0; i < tabs->count(); ++i) {
+        auto *page = qobject_cast<QPlainTextEdit *>(tabs->widget(i));
+        if (!page) continue;
+        const QString path = page->property("filePath").toString();
+        if (!pathAtOrBelow(path, source)) continue;
+        const QString relocated = target + path.mid(source.size());
+        page->setProperty("filePath", relocated);
+        page->setProperty("documentName", QFileInfo(relocated).fileName());
+        static_cast<CodeEditor *>(page)->setFilePath(relocated);
+    }
+    syncDocuments();
+    updateStatus();
 }
 void Notepad::renameTreeItem(const QString &path) {
     const QFileInfo info(path);
@@ -1240,30 +1288,10 @@ void Notepad::renameTreeItem(const QString &path) {
     }
     const QString newPath = info.dir().filePath(name);
     if (QFileInfo::exists(newPath)) { QMessageBox::warning(this, tr("无法重命名"), tr("目标名称已经存在。")); return; }
+    const QString source = normalizedPath(path);
     bool ok = QFile::rename(path, newPath);
     if (!ok) { QMessageBox::warning(this, tr("重命名失败"), tr("文件可能正在被其他程序占用。")); return; }
-    // 若被重命名的文件已打开，更新其路径。
-    for (int i = 0; i < tabs->count(); ++i) {
-        auto *page = qobject_cast<QPlainTextEdit *>(tabs->widget(i));
-        if (!page) continue;
-        if (samePath(page->property("filePath").toString(), path)) {
-            page->setProperty("filePath", newPath);
-            tabs->setTabText(i, QFileInfo(newPath).fileName());
-        }
-    }
-    if (info.isDir()) {
-        // 目录改名后，其下所有打开文件的路径都要同步。
-        for (int i = 0; i < tabs->count(); ++i) {
-            auto *page = qobject_cast<QPlainTextEdit *>(tabs->widget(i));
-            if (!page) continue;
-            const QString fp = page->property("filePath").toString();
-            if (fp.startsWith(normalizedPath(path) + "/")) {
-                const QString newFp = newPath + fp.mid(normalizedPath(path).length());
-                page->setProperty("filePath", newFp);
-                tabs->setTabText(i, QFileInfo(newFp).fileName());
-            }
-        }
-    }
+    relocateOpenDocuments(source, newPath);
     selectFileInTree();
 }
 void Notepad::copyTreePath(const QString &path) {
@@ -1297,6 +1325,11 @@ void Notepad::pasteTreeItem(const QString &folder) {
         return;
     }
     const QString name = QFileInfo(clipboardSource).fileName();
+    if (QFileInfo(clipboardSource).isDir() &&
+        pathAtOrBelow(resolvedFileSystemPath(folder), resolvedFileSystemPath(clipboardSource))) {
+        QMessageBox::warning(this, tr("无法粘贴"), tr("不能将文件夹放入它自己或它的子目录。"));
+        return;
+    }
     QString target = QDir(folder).filePath(name);
     if (samePath(target, clipboardSource)) {
         QMessageBox::information(this, tr("粘贴"), tr("源与目标位置相同。"));
@@ -1315,15 +1348,17 @@ void Notepad::pasteTreeItem(const QString &folder) {
     }
     const QFileInfo src(clipboardSource);
     bool ok = false;
-    if (src.isDir()) ok = copyDirRecursive(clipboardSource, target);
+    if (clipboardCut) ok = moveFileSystemEntry(clipboardSource, target);
+    else if (src.isDir()) ok = copyDirRecursive(clipboardSource, target);
     else ok = QFile::copy(clipboardSource, target);
     if (!ok) {
-        QMessageBox::warning(this, tr("粘贴失败"), tr("无法复制到目标位置。"));
+        QMessageBox::warning(this, tr("粘贴失败"), clipboardCut
+            ? tr("无法移动到目标位置。请检查权限；跨磁盘移动请使用系统文件管理器。")
+            : tr("无法完整复制到目标位置。源文件未改变，目标可能包含部分副本。"));
         return;
     }
     if (clipboardCut) {
-        if (src.isDir()) QDir(clipboardSource).removeRecursively();
-        else QFile::remove(clipboardSource);
+        relocateOpenDocuments(clipboardSource, target);
         clipboardSource.clear();
         clipboardCut = false;
     }

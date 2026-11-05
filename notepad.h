@@ -38,6 +38,8 @@ class Notepad : public QMainWindow {
                      qintptr *result) override;
 
   private:
+    friend struct NotepadFileTestAccess;
+    void relocateOpenDocuments(const QString &source, const QString &target);
     void updateWindowCorners();
     QString baseTheme;
     int zoomSteps = 0;

@@ -46,6 +46,13 @@
 #include <stdexcept>
 
 static int checks = 0;
+struct NotepadFileTestAccess {
+    static void remove(Notepad &window, const QString &path) { window.deleteTreeItem(path); }
+    static void cut(Notepad &window, const QString &path) { window.cutTreeItem(path); }
+    static void copy(Notepad &window, const QString &path) { window.copyTreeItem(path); }
+    static void paste(Notepad &window, const QString &path) { window.pasteTreeItem(path); }
+    static void rename(Notepad &window, const QString &path) { window.renameTreeItem(path); }
+};
 static void check(bool condition, const char *message) {
     if (!condition)
         throw std::runtime_error(message);
@@ -512,6 +519,55 @@ int main(int argc, char *argv[]) {
         check(discardClose.isAccepted() && prompts == 2,
               "exit checks every dirty document");
 
+        {
+            Notepad files;
+            check(files.openProject(temporary.path()), "open file operation project");
+            const QString source = temporary.filePath("file-operations");
+            const QString destination = temporary.filePath("move-destination");
+            check(QDir().mkpath(source + "/child") && QDir().mkpath(destination), "create move folders");
+            writeText(source + "/main.cpp", "int main() {}\n");
+            check(files.loadFile(source + "/main.cpp"), "open file before move");
+            auto *fileTabs = files.findChild<QTabWidget *>("documentTabs");
+            auto *pending = qobject_cast<QPlainTextEdit *>(fileTabs->currentWidget());
+            pending->insertPlainText("// pending\n");
+            const QString pendingText = pending->toPlainText();
+            answerMessage(QMessageBox::Ok);
+            NotepadFileTestAccess::copy(files, source);
+            NotepadFileTestAccess::paste(files, source + "/child");
+            check(!QFileInfo::exists(source + "/child/file-operations"), "reject recursive self-copy");
+            NotepadFileTestAccess::cut(files, source);
+            NotepadFileTestAccess::paste(files, destination);
+            const QString moved = destination + "/file-operations";
+            check(!QFileInfo::exists(source) && QFileInfo::exists(moved + "/main.cpp"), "cut moves source directory");
+            check(files.currentFilePath() == moved + "/main.cpp" && pending->document()->isModified() &&
+                pending->toPlainText() == pendingText, "move updates document path without discarding changes");
+            QTimer::singleShot(0, [] {
+                auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+                if (!dialog) std::exit(2);
+                dialog->setTextValue("main.py"); dialog->accept();
+            });
+            NotepadFileTestAccess::rename(files, moved + "/main.cpp");
+            check(files.currentFilePath() == moved + "/main.py" && pending->document()->isModified() &&
+                fileTabs->tabText(fileTabs->currentIndex()).startsWith("main.py"), "rename updates tab and preserves dirty state");
+            QTimer::singleShot(0, [] {
+                answerMessage(QMessageBox::Cancel);
+                auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+                if (!box) std::exit(2);
+                box->button(QMessageBox::Yes)->click();
+            });
+            NotepadFileTestAccess::remove(files, moved);
+            check(QFileInfo::exists(moved + "/main.py") && pending->toPlainText() == pendingText &&
+                fileTabs->indexOf(pending) >= 0, "cancel unsaved prompt aborts directory deletion");
+            QTimer::singleShot(0, [] {
+                answerMessage(QMessageBox::Discard);
+                auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+                if (!box) std::exit(2);
+                box->button(QMessageBox::Yes)->click();
+            });
+            NotepadFileTestAccess::remove(files, moved + "/main.py");
+            check(!QFileInfo::exists(moved + "/main.py") && fileTabs->indexOf(pending) < 0,
+                "confirmed file deletion closes its document");
+        }
         {
             Notepad renameWindow;
             renameWindow.show();
