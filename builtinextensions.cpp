@@ -13,6 +13,7 @@
 #include <QProcess>
 #include <QFileInfo>
 #include <QTextCursor>
+#include <QTextBlock>
 #include <QScrollBar>
 #include <QUrl>
 #include <QDesktopServices>
@@ -47,10 +48,18 @@ QWidget *createBuiltinExtension(const QString &name, QPlainTextEdit *source,
     page->setProperty("toolkitName", name);
     page->setObjectName("builtinExtensionPage");
     QPointer<QPlainTextEdit> editor(source);
-    auto *layout = new QVBoxLayout(page);
+    auto *outer = new QHBoxLayout(page);
+    outer->setContentsMargins(0, 0, 0, 0);
+    auto *content = new QWidget(page); content->setMaximumWidth(1050);
+    outer->addWidget(content, 1); outer->addStretch();
+    auto *layout = new QVBoxLayout(content);
     layout->setContentsMargins(24, 20, 24, 20);
     auto *heading = new QLabel(name, page);
     heading->setObjectName("toolkitTitle"); layout->addWidget(heading);
+    if (name != "Git Changes") {
+        auto *binding = new QLabel(QObject::tr("打开时的源文档：%1").arg(path.isEmpty() ? QObject::tr("未保存或未选择的文档") : path), page);
+        binding->setObjectName("toolchainRowDescription"); binding->setWordWrap(true); layout->addWidget(binding);
+    }
     auto *description = new QLabel(path.isEmpty() ? QObject::tr("请先打开需要处理的文档，再打开此扩展。") : path, page);
     description->setWordWrap(true); layout->addWidget(description);
     auto *status = new QLabel(page); status->setWordWrap(true);
@@ -62,7 +71,8 @@ QWidget *createBuiltinExtension(const QString &name, QPlainTextEdit *source,
         layout->addWidget(query); layout->addWidget(replacement);
         auto *sensitive = new QCheckBox(QObject::tr("区分大小写"), page);
         auto *whole = new QCheckBox(QObject::tr("匹配整个单词"), page); whole->setObjectName("findWholeWords");
-        layout->addWidget(sensitive); layout->addWidget(whole);
+        auto *options = new QHBoxLayout; options->addWidget(sensitive); options->addWidget(whole); options->addStretch();
+        layout->addLayout(options);
         auto flags = [=] {
             QTextDocument::FindFlags options;
             if (sensitive->isChecked()) options |= QTextDocument::FindCaseSensitively;
@@ -72,13 +82,30 @@ QWidget *createBuiltinExtension(const QString &name, QPlainTextEdit *source,
         auto *next = new QPushButton(QObject::tr("查找下一个（循环）"), page); next->setObjectName("findNextMatch");
         auto *replace = new QPushButton(QObject::tr("替换当前匹配"), page); replace->setObjectName("replaceCurrentMatch");
         auto *all = new QPushButton(QObject::tr("全部替换"), page); all->setObjectName("replaceAllMatches");
-        layout->addWidget(next); layout->addWidget(replace); layout->addWidget(all); layout->addStretch();
+        auto *actions = new QHBoxLayout; actions->addWidget(next); actions->addWidget(replace); actions->addWidget(all);
+        layout->addLayout(actions);
+        auto *context = new QPlainTextEdit(page); context->setReadOnly(true); context->setObjectName("findMatchContext");
+        context->setPlaceholderText(QObject::tr("查找后在此显示匹配行及相邻上下文"));
+        context->setMaximumBlockCount(8); context->setFixedHeight(160); layout->addWidget(context); layout->addStretch();
+        if (editor) {
+            const QString selected = editor->textCursor().selectedText();
+            if (selected.size() <= 1024 && !selected.contains(QChar::ParagraphSeparator)) query->setText(selected);
+            QObject::connect(editor, &QPlainTextEdit::textChanged, context, &QPlainTextEdit::clear);
+        }
         auto find = [=] {
             if (!editor || query->text().isEmpty()) { status->setText(QObject::tr("请输入查找内容，并保持源文档打开。")); return; }
             auto result = editor->document()->find(query->text(), editor->textCursor(), flags());
             if (result.isNull()) result = editor->document()->find(query->text(), 0, flags());
-            if (result.isNull()) status->setText(QObject::tr("未找到匹配。"));
-            else { editor->setTextCursor(result); editor->centerCursor(); status->setText(QObject::tr("匹配位于第 %1 行。切回源文档可查看选中内容。").arg(result.blockNumber() + 1)); }
+            if (result.isNull()) { context->clear(); status->setText(QObject::tr("未找到匹配。")); }
+            else {
+                editor->setTextCursor(result); editor->centerCursor();
+                status->setText(QObject::tr("匹配位于第 %1 行。").arg(result.blockNumber() + 1));
+                auto block = result.block(); if (block.previous().isValid()) block = block.previous();
+                QStringList lines;
+                for (int i = 0; i < 3 && block.isValid(); ++i, block = block.next())
+                    lines.append(QString("%1 | %2").arg(block.blockNumber() + 1).arg(block.text().left(500)));
+                context->setPlainText(lines.join('\n'));
+            }
         };
         QObject::connect(next, &QPushButton::clicked, page, find);
         QObject::connect(query, &QLineEdit::returnPressed, page, find);

@@ -15,6 +15,14 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.3.1 visual and feedback follow-up
+
+- Inspected actual native Windows renders of Find/Replace in light and GitHub dark themes, and Project Search in GitHub dark.
+- Added an explicit opened-source label and source context to Find/Replace, with compact option/action rows and prefilled selected text.
+- Matched the search result table/header to the dark themes; filename-only results show a dash rather than line zero.
+- Project Search reports oversized/unreadable content skips instead of presenting an apparently exhaustive result. Added regression checks for rendered match context and skipped oversized content.
+- Optional BASIS_EXTENSION_PREVIEW_PREFIX on NotepadTests generates reproducible native extension screenshots from temporary fixtures.
+
 ## 1.3.0 editing follow-up
 
 - Added native Find and Replace with Ctrl+F/Ctrl+H, literal case/whole-word matching, wrapping search, current-match replacement and single-undo replace-all. Large replace-all operations are rejected before any edits instead of partially applying them.

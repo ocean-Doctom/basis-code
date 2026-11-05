@@ -121,6 +121,7 @@ int main(int argc, char **argv) {
         editor.undo(); check(editor.toPlainText() == "foo food Foo", "all replacements form one undo group");
         replacePage->findChild<QPushButton *>("findNextMatch")->click();
         check(editor.textCursor().hasSelection(), "find selects a source match");
+        check(replacePage->findChild<QPlainTextEdit *>("findMatchContext")->toPlainText().contains("food"), "find renders adjacent source context");
         delete replacePage;
         if (!QStandardPaths::findExecutable("git").isEmpty()) {
             auto git = [&](const QStringList &args) {
@@ -148,6 +149,8 @@ int main(int argc, char **argv) {
         QFile searchable(root.filePath("searchable.txt"));
         check(searchable.open(QIODevice::WriteOnly), "create search fixture"); searchable.write("first line\nneedle here\n"); searchable.close();
         bool navigated = false;
+        QFile large(root.filePath("large-unsearched.txt"));
+        check(large.open(QIODevice::WriteOnly), "create oversized search fixture"); large.write(QByteArray(513 * 1024, 'a')); large.close();
         auto *searchPage = createProjectSearch(root.path(), "needle", [&](const QString &path, int line) {
             navigated = path == searchable.fileName() && line == 2;
         }, nullptr);
@@ -155,6 +158,7 @@ int main(int argc, char **argv) {
         timer.restart();
         while (results->topLevelItemCount() == 0 && timer.elapsed() < 4000) { app.processEvents(); QThread::msleep(5); }
         check(results->topLevelItemCount() == 1, "background search finds content and excludes dependency folder");
+        check(searchPage->findChild<QLabel *>("projectSearchStatus")->text().contains(QString::fromUtf8("个文件因过大")), "search reports skipped oversized content");
         results->itemActivated(results->topLevelItem(0), 0);
         check(navigated, "search result navigates to matching line");
         delete searchPage;

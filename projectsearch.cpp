@@ -18,7 +18,7 @@
 #include <memory>
 namespace {
 struct Hit { QString path; int line; QString text; };
-struct Scan { QList<Hit> hits; int visited = 0; bool limited = false; };
+struct Scan { QList<Hit> hits; int visited = 0; int unread = 0; bool limited = false; };
 Scan search(const QString &folder, const QString &keyword, const std::shared_ptr<std::atomic_bool> &cancel) {
     Scan result;
     const QString realRoot = resolvedFileSystemPath(folder);
@@ -44,9 +44,9 @@ Scan search(const QString &folder, const QString &keyword, const std::shared_ptr
             if (entry.fileName().contains(keyword, Qt::CaseInsensitive)) {
                 result.hits.append({entry.absoluteFilePath(), 0, entry.fileName()}); continue;
             }
-            if (entry.size() > 512 * 1024) continue;
+            if (entry.size() > 512 * 1024) { ++result.unread; continue; }
             QFile file(entry.absoluteFilePath());
-            if (!file.open(QIODevice::ReadOnly)) continue;
+            if (!file.open(QIODevice::ReadOnly)) { ++result.unread; continue; }
             const auto data = file.read(512 * 1024); bytes += data.size();
             if (data.contains('\0')) continue;
             const auto lines = QString::fromUtf8(data).split('\n');
@@ -68,7 +68,7 @@ QWidget *createProjectSearch(const QString &root, const QString &initial,
     auto *layout = new QVBoxLayout(page);
     auto *input = new QLineEdit(page); input->setObjectName("projectSearchInput");
     input->setPlaceholderText(QObject::tr("搜索文件名与文本内容（不区分大小写）")); layout->addWidget(input);
-    auto *description = new QLabel(QObject::tr("%1\n跳过 .git、build、node_modules、虚拟环境和链接。扫描上限：3 秒、5000 项、20 MiB、500 个结果。").arg(root), page);
+    auto *description = new QLabel(QObject::tr("%1\n跳过 .git、build、node_modules、虚拟环境和链接。上限：3 秒、5000 项、总计 20 MiB、单文件 512 KiB、500 个结果。").arg(root), page);
     description->setWordWrap(true); layout->addWidget(description);
     auto *status = new QLabel(page); status->setObjectName("projectSearchStatus"); layout->addWidget(status);
     auto *results = new QTreeWidget(page); results->setObjectName("projectSearchResults");
@@ -98,12 +98,13 @@ QWidget *createProjectSearch(const QString &root, const QString &initial,
             if (token->load() || *active != token) return;
             results->clear();
             for (const auto &hit : found->hits) {
-                auto *item = new QTreeWidgetItem(results, {QDir(root).relativeFilePath(hit.path), QString::number(hit.line), hit.text});
+                auto *item = new QTreeWidgetItem(results, {QDir(root).relativeFilePath(hit.path), hit.line > 0 ? QString::number(hit.line) : QString(QChar(0x2014)), hit.text});
                 item->setData(0, Qt::UserRole, hit.path); item->setData(1, Qt::UserRole, hit.line);
             }
             results->resizeColumnToContents(0);
-            status->setText(QObject::tr("%1 个结果，扫描 %2 项%3").arg(found->hits.size()).arg(found->visited)
-                .arg(found->limited ? QObject::tr("；达到扫描上限，结果不完整。") : QString()));
+            status->setText(QObject::tr("%1 个结果，扫描 %2 项%3%4").arg(found->hits.size()).arg(found->visited)
+                .arg(found->limited ? QObject::tr("；达到扫描上限，结果不完整。") : QString())
+                .arg(found->unread ? QObject::tr("；%1 个文件因过大或无读取权限而跳过内容。").arg(found->unread) : QString()));
         });
         QObject::connect(worker, &QThread::finished, worker, &QObject::deleteLater); worker->start();
     });

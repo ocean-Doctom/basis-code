@@ -14,6 +14,7 @@
 #include <QThread>
 #include <QSplitter>
 #include <QTreeView>
+#include <QTreeWidget>
 
 #include <QMessageBox>
 #include <QTabBar>
@@ -624,6 +625,29 @@ int main(int argc, char *argv[]) {
             pluginTabs->currentWidget()->findChild<QPushButton *>("applyDocumentFormat")->click();
             check(second->toPlainText().contains("    \"b\": 2") && first->toPlainText() == "{\"a\":1}", "formatter updates selected source only");
             second->undo();
+            if (qEnvironmentVariableIsSet("BASIS_EXTENSION_PREVIEW_PREFIX")) {
+                const QString prefix = qEnvironmentVariable("BASIS_EXTENSION_PREVIEW_PREFIX");
+                pluginWindow.show();
+                pluginWindow.findChild<QAction *>("actionGitHubDarkTheme")->trigger();
+                pluginTabs->setCurrentWidget(second);
+                pluginWindow.findChild<QAction *>("actionFindReplace")->trigger();
+                pluginTabs->currentWidget()->findChild<QLineEdit *>("documentFindText")->setText("b");
+                pluginTabs->currentWidget()->findChild<QPushButton *>("findNextMatch")->click();
+                app.processEvents();
+                check(pluginWindow.grab().save(prefix + "-find-dark.png"), "render native find extension");
+                pluginWindow.findChild<QAction *>("actionLightTheme")->trigger(); app.processEvents();
+                check(pluginWindow.grab().save(prefix + "-find-light.png"), "render light find extension");
+                pluginWindow.findChild<QAction *>("actionGitHubDarkTheme")->trigger();
+                catalog->itemClicked(catalog->findItems("Project Search", Qt::MatchExactly).first());
+                auto *searchPage = pluginTabs->currentWidget();
+                searchPage->findChild<QLineEdit *>("projectSearchInput")->setText("format-a");
+                QElapsedTimer wait; wait.start();
+                while (searchPage->findChild<QTreeWidget *>("projectSearchResults")->topLevelItemCount() == 0 && wait.elapsed() < 4000) {
+                    app.processEvents(); QThread::msleep(5);
+                }
+                app.processEvents();
+                check(pluginWindow.grab().save(prefix + "-search-dark.png"), "render native project search");
+            }
         }
         if (app.arguments().contains("--benchmark")) {
             const QString large = temporary.filePath("large-benchmark.cpp");

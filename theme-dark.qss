@@ -1,4 +1,6 @@
 QMainWindow, QWidget#mainArea { background: #1a1b26; color: #c0caf5; }
+QTreeWidget#projectSearchResults { background: #1a1b26; color: #c0caf5; border: 1px solid #414868; selection-background-color: #283457; }
+QTreeWidget#projectSearchResults QHeaderView::section { background: #24283b; color: #c0caf5; border: none; border-bottom: 1px solid #414868; padding: 7px; }
 QFrame#activityRail { background: #1a1b26; border-right: 1px solid #414868; }
 QFrame#activityRail QToolButton { border-radius: 6px; padding: 0; background: transparent; }
 QFrame#activityRail QToolButton:hover { background: #292e42; }
