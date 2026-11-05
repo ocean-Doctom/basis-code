@@ -24,6 +24,13 @@
 #include <stdexcept>
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 struct DevToolsTestAccess {
+    static QMetaObject::Connection stopAfterCompile(DevTools &tools, bool &observed, bool &wasBusy) {
+        return QObject::connect(tools.process, &QProcess::finished, &tools, [&tools, &observed, &wasBusy](int code, QProcess::ExitStatus exit) {
+            if (!observed && tools.compiling && code == 0 && exit == QProcess::NormalExit) {
+                observed = true; wasBusy = tools.busy(); tools.stop();
+            }
+        });
+    }
     static void diagnostics(DevTools &tools) {
         tools.compiling = true;
         tools.consumeProcessText("C:/sample.cpp:12:3: er", true);
@@ -158,6 +165,10 @@ int main(int argc, char **argv) {
         check(QFileInfo::exists(terminalExecutable) && terminalOutput->toPlainText().contains("BASIS_CPP_OK"),
               "terminal compiles and runs independently from the IDE runner");
         check(execute(cpp)==0 && output->toPlainText().contains("BASIS_CPP_OK"),"C++ compile and run with Unicode spaces path");
+        bool handoffObserved = false, handoffBusy = false;
+        const auto handoffConnection = DevToolsTestAccess::stopAfterCompile(tools, handoffObserved, handoffBusy);
+        const int stoppedHandoff = execute(cpp); QObject::disconnect(handoffConnection);
+        check(handoffObserved && handoffBusy && stoppedHandoff == -1 && !output->toPlainText().contains("BASIS_CPP_OK"), "stop in compile/launch handoff completes without starting target");
         const auto c=temp.filePath("hello.c");
         write(c,"#include <stdio.h>\nint main(void){puts(\"BASIS_C_OK zero errors\");return 0;}\n");
         check(execute(c)==0 && output->toPlainText().contains("BASIS_C_OK"),"C selects gcc and runs");

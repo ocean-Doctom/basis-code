@@ -15,6 +15,12 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.4.2 execution-state follow-up
+
+- The compiler-to-launch event gap now remains busy until execution actually starts, preventing a second build from overwriting pending launch information.
+- Stopping during that gap emits completion without launching the target, rather than leaving callers waiting.
+- A real compiler regression intercepts this exact gap and verifies busy state, cancellation result and absence of target output. Default CTest groups pass.
+
 ## 1.4.1 diagnostics follow-up
 
 - Compiler diagnostics are assembled separately across stdout/stderr chunks; unterminated final lines are flushed at process completion. Ordinary program output containing words such as "error" no longer becomes a compiler problem.

@@ -721,7 +721,9 @@ DevTools::DevTools(QMainWindow *parent) : QObject(parent), window(parent) {
     connect(process, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
         readProcessOutput(false); readProcessOutput(true); flushDiagnostics();
         if (compiling && !stopping && code == 0 && status == QProcess::NormalExit) {
-            compiling=false; QTimer::singleShot(0, this, &DevTools::runExecutable); return;
+            // Remain busy until the queued launch begins. Otherwise another
+            // build can overwrite the pending executable in this event gap.
+            QTimer::singleShot(0, this, &DevTools::runExecutable); return;
         }
         log(stopping ? tr("\n已停止。\n") : tr("\n进程结束，退出码：%1\n").arg(code));
         compiling=false; input->setEnabled(false); emit activityChanged(false); emit executionFinished(code);
@@ -901,7 +903,11 @@ void DevTools::buildAndRun(const QString &source, const QString &project, bool d
 }
 
 void DevTools::runExecutable() {
-    if (stopping) { compiling = false; emit activityChanged(false); return; }
+    if (stopping) {
+        compiling = false; input->setEnabled(false); log(tr("\n已停止。\n"));
+        emit activityChanged(false); emit executionFinished(-1); return;
+    }
+    compiling = false;
     log(tr("\n%1：%2\n").arg(debugging ? tr("调试") : tr("运行"), executable));
     input->setPlaceholderText(debugging ? tr("输入调试命令，按回车发送") : tr("程序标准输入，按回车发送"));
     input->setEnabled(true);
