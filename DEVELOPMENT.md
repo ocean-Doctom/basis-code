@@ -15,6 +15,13 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.3.0 editing follow-up
+
+- Added native Find and Replace with Ctrl+F/Ctrl+H, literal case/whole-word matching, wrapping search, current-match replacement and single-undo replace-all. Large replace-all operations are rejected before any edits instead of partially applying them.
+- Extension opening remembers the last active code document, and bound source closure disables document actions with an explanation.
+- Noninteractive Agent commands receive stdin EOF. Captured stdout/stderr explicitly mark truncation; tests exercise an EOF reader and 600,000-byte output.
+- Tests cover whole-word replacement, inserted search terms, one-step undo and source selection. Full local Java/Python debugger checks were separately verified without downloads.
+
 ## 1.2.1 boundary follow-up
 
 - A real Windows junction regression showed that QFileInfo::canonicalFilePath was insufficient for the tested junction. Existing files/directories now resolve through GetFinalPathNameByHandleW on Windows before boundary checks. Recursive Agent scans also validate each result; Project Search uses the same resolver.

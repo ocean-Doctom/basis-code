@@ -292,11 +292,16 @@ QString AgentTools::runCommand(const QJsonObject &args, QJsonObject &content, bo
     });
 #endif
     QByteArray standardOutput, standardError;
+    bool stdoutTruncated = false, stderrTruncated = false;
     auto collect = [&] {
         const auto out = process.readAllStandardOutput();
         const auto err = process.readAllStandardError();
-        standardOutput += out.left(qMax(0, int(kMaxReadBytes) - int(standardOutput.size())));
-        standardError += err.left(qMax(0, int(kMaxReadBytes) - int(standardError.size())));
+        const int outRemaining = qMax(0, int(kMaxReadBytes) - int(standardOutput.size()));
+        const int errRemaining = qMax(0, int(kMaxReadBytes) - int(standardError.size()));
+        stdoutTruncated |= out.size() > outRemaining;
+        stderrTruncated |= err.size() > errRemaining;
+        standardOutput += out.left(outRemaining);
+        standardError += err.left(errRemaining);
     };
     QObject::connect(&process, &QProcess::readyReadStandardOutput, &process, collect);
     QObject::connect(&process, &QProcess::readyReadStandardError, &process, collect);
@@ -327,6 +332,9 @@ QString AgentTools::runCommand(const QJsonObject &args, QJsonObject &content, bo
         content["error"] = "failed to start process";
         return "run_command";
     }
+    // This tool has no interactive input channel. EOF lets readers terminate
+    // instead of waiting until the command timeout; the terminal stays separate.
+    process.closeWriteChannel();
     if (!process.waitForFinished(30000)) {
         process.kill();
         process.waitForFinished(2000);
@@ -334,11 +342,15 @@ QString AgentTools::runCommand(const QJsonObject &args, QJsonObject &content, bo
         collect();
         content["stdout"] = QString::fromUtf8(standardOutput);
         content["stderr"] = QString::fromUtf8(standardError);
+        content["stdoutTruncated"] = stdoutTruncated;
+        content["stderrTruncated"] = stderrTruncated;
         return "run_command";
     }
     collect();
     content["stdout"] = QString::fromUtf8(standardOutput);
     content["stderr"] = QString::fromUtf8(standardError);
+    content["stdoutTruncated"] = stdoutTruncated;
+    content["stderrTruncated"] = stderrTruncated;
     content["exitCode"] = process.exitCode();
     return "run_command";
 }

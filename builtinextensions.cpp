@@ -3,6 +3,8 @@
 #include <QTextBrowser>
 #include <QPushButton>
 #include <QLabel>
+#include <QLineEdit>
+#include <QCheckBox>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QJsonDocument>
@@ -53,7 +55,59 @@ QWidget *createBuiltinExtension(const QString &name, QPlainTextEdit *source,
     description->setWordWrap(true); layout->addWidget(description);
     auto *status = new QLabel(page); status->setWordWrap(true);
     status->setObjectName("extensionStatus"); layout->addWidget(status);
-    if (name == "Markdown Preview") {
+    if (name == "Find and Replace") {
+        description->setText(QObject::tr("在绑定的源文档中进行字面量查找和替换；替换可撤销，不会自动保存。"));
+        auto *query = new QLineEdit(page); query->setObjectName("documentFindText"); query->setPlaceholderText(QObject::tr("查找内容"));
+        auto *replacement = new QLineEdit(page); replacement->setObjectName("documentReplaceText"); replacement->setPlaceholderText(QObject::tr("替换为"));
+        layout->addWidget(query); layout->addWidget(replacement);
+        auto *sensitive = new QCheckBox(QObject::tr("区分大小写"), page);
+        auto *whole = new QCheckBox(QObject::tr("匹配整个单词"), page); whole->setObjectName("findWholeWords");
+        layout->addWidget(sensitive); layout->addWidget(whole);
+        auto flags = [=] {
+            QTextDocument::FindFlags options;
+            if (sensitive->isChecked()) options |= QTextDocument::FindCaseSensitively;
+            if (whole->isChecked()) options |= QTextDocument::FindWholeWords;
+            return options;
+        };
+        auto *next = new QPushButton(QObject::tr("查找下一个（循环）"), page); next->setObjectName("findNextMatch");
+        auto *replace = new QPushButton(QObject::tr("替换当前匹配"), page); replace->setObjectName("replaceCurrentMatch");
+        auto *all = new QPushButton(QObject::tr("全部替换"), page); all->setObjectName("replaceAllMatches");
+        layout->addWidget(next); layout->addWidget(replace); layout->addWidget(all); layout->addStretch();
+        auto find = [=] {
+            if (!editor || query->text().isEmpty()) { status->setText(QObject::tr("请输入查找内容，并保持源文档打开。")); return; }
+            auto result = editor->document()->find(query->text(), editor->textCursor(), flags());
+            if (result.isNull()) result = editor->document()->find(query->text(), 0, flags());
+            if (result.isNull()) status->setText(QObject::tr("未找到匹配。"));
+            else { editor->setTextCursor(result); editor->centerCursor(); status->setText(QObject::tr("匹配位于第 %1 行。切回源文档可查看选中内容。").arg(result.blockNumber() + 1)); }
+        };
+        QObject::connect(next, &QPushButton::clicked, page, find);
+        QObject::connect(query, &QLineEdit::returnPressed, page, find);
+        QObject::connect(replace, &QPushButton::clicked, page, [=] {
+            if (!editor || query->text().isEmpty()) return;
+            auto cursor = editor->textCursor();
+            const auto matched = editor->document()->find(query->text(), cursor.selectionStart(), flags());
+            if (!cursor.hasSelection() || matched.isNull() || matched.selectionStart() != cursor.selectionStart() || matched.selectionEnd() != cursor.selectionEnd()) { find(); return; }
+            cursor.insertText(replacement->text()); editor->setTextCursor(cursor); find();
+        });
+        QObject::connect(all, &QPushButton::clicked, page, [=] {
+            if (!editor || query->text().isEmpty()) return;
+            if (editor->document()->characterCount() > 2000000) { status->setText(QObject::tr("文档超过 200 万字符，请缩小文档后使用全部替换。")); return; }
+            QList<QPair<int, int>> matches;
+            QTextCursor cursor(editor->document());
+            while (true) {
+                cursor = editor->document()->find(query->text(), cursor, flags());
+                if (cursor.isNull()) break;
+                matches.append({cursor.selectionStart(), cursor.selectionEnd()});
+                if (matches.size() > 10000) { status->setText(QObject::tr("匹配超过 10000 项，未修改文档。请缩小查找范围。")); return; }
+            }
+            QTextCursor edit(editor->document()); edit.beginEditBlock();
+            for (auto it = matches.crbegin(); it != matches.crend(); ++it) {
+                edit.setPosition(it->first); edit.setPosition(it->second, QTextCursor::KeepAnchor); edit.insertText(replacement->text());
+            }
+            edit.endEditBlock();
+            status->setText(QObject::tr("已替换 %1 项，可在源文档中一次撤销。").arg(matches.size()));
+        });
+    } else if (name == "Markdown Preview") {
         auto *preview = new QTextBrowser(page);
         preview->setObjectName("markdownPreview");
         preview->setOpenLinks(false);
@@ -156,6 +210,13 @@ QWidget *createBuiltinExtension(const QString &name, QPlainTextEdit *source,
                 cursor.setPosition(qMin(position, int(result.size()))); editor->setTextCursor(cursor);
             }
             status->setText(QObject::tr("已应用到源文档。请切回文档查看或撤销；保存仍由你决定。"));
+        });
+    }
+    if (name != "Git Changes") {
+        if (!source) status->setText(QObject::tr("请先打开源文档，再从该文档打开扩展。"));
+        else QObject::connect(source, &QObject::destroyed, page, [page, status] {
+            status->setText(QObject::tr("源文档已关闭，请重新打开文档后再打开扩展。"));
+            for (auto *button : page->findChildren<QPushButton *>()) button->setEnabled(false);
         });
     }
     return page;

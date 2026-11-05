@@ -675,6 +675,7 @@ void Notepad::createExtensionsPage() {
     addToolkit("python", "Whitespace Cleaner", tr("清理行尾空白与多余尾行。"));
     addToolkit("cpp", "Git Changes", tr("异步查看工作区 Git 状态和差异。"));
     addToolkit("cpp", "Project Search", tr("可取消的后台项目搜索，匹配文件名和内容。"));
+    addToolkit("python", "Find and Replace", tr("文档查找、循环定位和可撤销的批量替换。"));
     layout->addWidget(list);
     connect(search, &QLineEdit::textChanged, list, [list](const QString &text) {
         for (int row = 0; row < list->count(); ++row) {
@@ -985,8 +986,8 @@ void Notepad::closePreview() {
 void Notepad::openToolkit(const QString &name, const QString &summary) {
     if (name == "ChatGPT" || name == "DeepSeek") { openAgent(name.toLower()); return; }
     if (name == "Project Search") { searchInFolder(projectRoot); return; }
-    const bool builtin = QStringList{"Markdown Preview", "JSON Tools", "Whitespace Cleaner", "Git Changes"}.contains(name);
-    auto *source = editor;
+    const bool builtin = QStringList{"Markdown Preview", "JSON Tools", "Whitespace Cleaner", "Git Changes", "Find and Replace"}.contains(name);
+    auto *source = editor ? editor : lastCodeEditor.data();
     if (builtin && !source) for (int i = tabs->count() - 1; i >= 0; --i) {
         if (auto *candidate = qobject_cast<QPlainTextEdit *>(tabs->widget(i))) { source = candidate; break; }
     }
@@ -1675,6 +1676,10 @@ void Notepad::createActions() {
                               tabs->count());
     });
     auto *aboutAction = helpMenu->addAction(tr("关于 Basis Code"));
+    auto *findAction = editMenu->addAction(tr("查找与替换…"));
+    findAction->setObjectName("actionFindReplace");
+    findAction->setShortcuts({QKeySequence::Find, QKeySequence("Ctrl+H")});
+    connect(findAction, &QAction::triggered, this, [this] { openToolkit("Find and Replace", {}); });
     connect(aboutAction, &QAction::triggered, this, [this] {
         QMessageBox::about(this, tr("关于 Basis Code"),
                            tr("Basis Code %1\n作者：ocean-Doctom\nApache-2.0 开源许可证\n\n使用 C++ 和 Qt Widgets 构建的代码编辑器。\n文件以 UTF-8 "
@@ -1743,6 +1748,7 @@ QString Notepad::currentFilePath() const {
 
 void Notepad::activateDocument(int index) {
     editor = qobject_cast<QPlainTextEdit *>(tabs->widget(index));
+    if (editor) lastCodeEditor = editor;
     tabs->setVisible(index >= 0);
     for (auto *action : tabActions)
         action->setEnabled(index >= 0);

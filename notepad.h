@@ -1,5 +1,6 @@
 #pragma once
 #include <QMainWindow>
+#include <QPointer>
 
 class DevTools;
 class QAction;
@@ -115,6 +116,7 @@ class Notepad : public QMainWindow {
     void printDocument();
 
     QPlainTextEdit *editor = nullptr;
+    QPointer<QPlainTextEdit> lastCodeEditor;
     QLabel *positionLabel;
     QTabWidget *tabs;
     QTreeView *projectTree;

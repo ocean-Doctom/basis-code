@@ -16,6 +16,7 @@
 #include <QTreeWidget>
 #include <QLineEdit>
 #include <QLabel>
+#include <QCheckBox>
 #include <iostream>
 #include <stdexcept>
 static void check(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
@@ -77,6 +78,13 @@ int main(int argc, char **argv) {
         const auto failure = tools.run("native-failure", "run_command", {{"command", failingCommand}});
         const auto failureContent = QJsonDocument::fromJson(failure.payload["content"].toString().toUtf8()).object();
         check(failureContent["exitCode"].toInt() == 7, "tool preserves native failure exit code");
+#ifdef Q_OS_WIN
+        const auto eof = tools.run("eof", "run_command", {{"command", "[Console]::In.ReadToEnd(); Write-Output BASIS_EOF_OK"}});
+        check(QJsonDocument::fromJson(eof.payload["content"].toString().toUtf8()).object()["stdout"].toString().contains("BASIS_EOF_OK"), "noninteractive tool input receives EOF");
+        const auto largeOutput = tools.run("large-output", "run_command", {{"command", "Write-Output ('x' * 600000)"}});
+        const auto capped = QJsonDocument::fromJson(largeOutput.payload["content"].toString().toUtf8()).object();
+        check(capped["stdout"].toString().size() <= 512 * 1024 && capped["stdoutTruncated"].toBool(), "large command output is capped and marked truncated");
+#endif
         QPlainTextEdit editor;
         editor.setPlainText("{\"answer\":42}");
         auto *json = createBuiltinExtension("JSON Tools", &editor, "test.json", root.path(), nullptr);
@@ -103,6 +111,17 @@ int main(int argc, char **argv) {
         auto *closed = createBuiltinExtension("JSON Tools", missing, "gone.json", root.path(), nullptr);
         delete missing; closed->findChild<QPushButton *>("applyDocumentFormat")->click();
         check(!closed->findChild<QPushButton *>("applyDocumentFormat")->isEnabled(), "closed source handled safely"); delete closed;
+        editor.setPlainText("foo food Foo");
+        auto *replacePage = createBuiltinExtension("Find and Replace", &editor, "replace.txt", root.path(), nullptr);
+        replacePage->findChild<QLineEdit *>("documentFindText")->setText("foo");
+        replacePage->findChild<QLineEdit *>("documentReplaceText")->setText("foo-new");
+        replacePage->findChild<QCheckBox *>("findWholeWords")->setChecked(true);
+        replacePage->findChild<QPushButton *>("replaceAllMatches")->click();
+        check(editor.toPlainText() == "foo-new food foo-new", "replace all respects whole words and does not repeat inserted matches");
+        editor.undo(); check(editor.toPlainText() == "foo food Foo", "all replacements form one undo group");
+        replacePage->findChild<QPushButton *>("findNextMatch")->click();
+        check(editor.textCursor().hasSelection(), "find selects a source match");
+        delete replacePage;
         if (!QStandardPaths::findExecutable("git").isEmpty()) {
             auto git = [&](const QStringList &args) {
                 QProcess process; process.setWorkingDirectory(root.path());
