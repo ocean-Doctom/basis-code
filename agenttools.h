@@ -7,7 +7,8 @@
 #include <functional>
 
 // Local file/command toolkit for the AI agent. Every operation is confined to a
-// user-selected working directory so the model can never escape its sandbox.
+// user-selected directory. Approved shell commands run with the user's OS
+// permissions; a working directory is not an operating-system sandbox.
 class AgentTools {
   public:
     enum class CommandPolicy {

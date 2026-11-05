@@ -25,8 +25,6 @@ QToolButton { background: transparent; border: none; border-radius: 5px; color: 
 QToolButton:hover { background: #292e42; color: #c0caf5; }
 QToolButton:pressed, QToolButton:checked { background: #292e42; }
 QToolButton::menu-indicator { image: none; width: 0; }
-QToolButton#saveButton { background: #292e42; color: #c0caf5; padding: 7px 16px; border-radius: 5px; }
-QToolButton#saveButton:hover { background: #33467c; }
 QToolButton#addTabButton { font-size: 14pt; margin: 4px 10px; padding: 0px 9px; }
 QTabWidget#documentTabs::pane { border: none; border-top: 1px solid #414868; background: #1a1b26; }
 QTabWidget#documentTabs > QTabBar { background: #202231; }
@@ -122,10 +120,15 @@ QPushButton[toolkitAction="secondary"]:hover { background: #33467c; }
 
 QLabel#recentProjectsTitle { color: #a9b1d6; padding: 6px 4px; }
 QListWidget#recentProjects { background: transparent; border: none; color: #a9b1d6; outline: none; }
-QListWidget#recentProjects::item { padding: 10px 4px; border-radius: 5px; }
+QListWidget#recentProjects::item { padding: 0px; border-radius: 5px; }
 QListWidget#recentProjects::item:hover { background: #292e42; }
 QListWidget#recentProjects::item:selected { background: #33467c; color: #c0caf5; }
 QListWidget#recentProjects::item:disabled { color: #a3aab5; }
+QWidget#recentProjectRow { background: transparent; border-radius: 5px; }
+QLabel#recentProjectName { color: #c0caf5; font-size: 9.5pt; }
+QLabel#recentProjectPath { color: #7d88ab; font-size: 8pt; }
+QToolButton#recentProjectMore { color: #7d88ab; border: none; background: transparent; border-radius: 4px; font-size: 15pt; padding: 0; }
+QToolButton#recentProjectMore:hover { background: #33467c; color: #c0caf5; }
 
 QWidget { color: #c0caf5; }
 QDialog { background: #1a1b26; }
@@ -157,4 +160,52 @@ QComboBox#chatgptModels { background: transparent; border: none; color: #c0caf5;
 
 QWidget#runOutputDock, QWidget#runOutputBody, QWidget#terminalPane, QWidget#chatgptPage { background: #1a1b26; }
 QTabWidget#outputTabs::pane { background: #1a1b26; border: none; }
-QTabWidget#outputTabs > QTabBar { background: #1a1b26; }
+QTabWidget#outputTabs > QTabBar { background: #16161e; }
+QTabWidget#outputTabs > QTabBar::tab { background: transparent; color: #9aa0b5; padding: 5px 12px; border: none; border-bottom: 2px solid transparent; }
+QTabWidget#outputTabs > QTabBar::tab:selected { color: #e6e8f0; border-bottom: 2px solid #6c8cff; }
+QTabWidget#outputTabs > QTabBar::tab:hover:!selected { color: #c9cede; }
+QWidget#problemsPage, QWidget#debugConsolePage, QWidget#portsPage { background: #1a1b26; }
+QLineEdit#problemsFilter { border: 1px solid #2a2c3a; border-radius: 4px; padding: 5px 8px; background: #1f2029; color: #e6e8f0; }
+QListWidget#problemsList { border: none; background: #1a1b26; }
+QListWidget#problemsList::item { padding: 4px 6px; border-bottom: 1px solid #242633; }
+QLabel#problemsEmpty, QLabel#debugHint { color: #6b7186; }
+QToolButton#closePanelButton { border: none; border-radius: 3px; font-size: 14pt; color: #9aa0b5; padding: 0 6px; }
+QToolButton#closePanelButton:hover { background: #2a2c3a; }
+QWidget#panelCorner { background: transparent; }
+
+/* ── 设置页 ── */
+QWidget#settingsPage { background: #1a1b26; }
+QLabel#settingsTitle { font-size: 16pt; font-weight: 600; color: #c0caf5; }
+QLineEdit#settingsSearch { border: 1px solid #2a2c3a; border-radius: 4px; padding: 5px 8px; background: #1f2029; color: #c0caf5; }
+QToolButton#settingsScopeUser, QToolButton#settingsScopeWorkspace {
+    background: transparent; border: none; padding: 6px 14px; color: #9aa0b5; font-size: 11pt;
+    border-bottom: 2px solid transparent;
+}
+QToolButton#settingsScopeUser:checked, QToolButton#settingsScopeWorkspace:checked {
+    color: #c0caf5; border-bottom: 2px solid #6c8cff; font-weight: 600;
+}
+QPushButton#settingsSyncButton { background: #238636; color: #ffffff; border: none; border-radius: 4px; padding: 5px 12px; }
+QPushButton#settingsSyncButton:hover { background: #2ea043; }
+QListWidget#settingsNav { background: #16161e; border: none; border-right: 1px solid #2a2c3a; padding-top: 6px; }
+QListWidget#settingsNav::item { padding: 7px 16px; color: #9aa0b5; }
+QListWidget#settingsNav::item:selected { background: #292e42; color: #c0caf5; border-left: 2px solid #6c8cff; }
+QLabel#settingsItemTitle { font-size: 11pt; font-weight: 600; color: #c0caf5; }
+QLabel#settingsItemDesc { font-size: 9pt; color: #6b7186; }
+QLabel#settingsEmpty { color: #6b7186; }
+QScrollArea#settingsCommonScroll { border: none; background: transparent; }
+QStackedWidget#settingsContent { background: #1a1b26; }
+QScrollArea#settingsCommonScroll > QWidget > QWidget { background: #1a1b26; }
+QWidget#settingsCommonInner { background: #1a1b26; }
+QComboBox#settingsCombo, QSpinBox#settingsSpin, QCheckBox#settingsCheck {
+    background: #1f2029; color: #c0caf5; border: 1px solid #2a2c3a; border-radius: 4px; padding: 4px 8px;
+}
+QComboBox#settingsCombo QAbstractItemView { background: #1f2029; color: #c0caf5; selection-background-color: #33467c; }
+QSpinBox#settingsSpin { padding-right: 4px; }
+QCheckBox#settingsCheck { border: none; background: transparent; padding: 0; spacing: 6px; }
+
+/* ── 分屏预览 ── */
+QWidget#previewPane { background: #1a1b26; border-left: 1px solid #2a2c3a; }
+QWidget#previewHeader { background: #16161e; border-bottom: 1px solid #2a2c3a; }
+QLabel#previewTitle { color: #9aa0b5; font-weight: 600; }
+QToolButton#closePreviewButton { border: none; border-radius: 3px; font-size: 14pt; color: #9aa0b5; padding: 0 6px; }
+QToolButton#closePreviewButton:hover { background: #2a2c3a; }

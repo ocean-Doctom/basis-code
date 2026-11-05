@@ -2,7 +2,7 @@ Unicode true
 !include "MUI2.nsh"
 !include "x64.nsh"
 Name "Basis Code"
-OutFile "${OUTPUT}\BasisCode-Setup-1.0.0-x64.exe"
+OutFile "${OUTPUT}\BasisCode-Setup-1.1.0-x64.exe"
 InstallDir "$LOCALAPPDATA\Programs\Basis Code"
 InstallDirRegKey HKCU "Software\BasisCode" "InstallDir"
 RequestExecutionLevel user
@@ -34,7 +34,7 @@ Section "Basis Code"
   CreateShortcut "$DESKTOP\Basis Code.lnk" "$INSTDIR\BasisCode.exe"
   WriteRegStr HKCU "Software\BasisCode" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BasisCode" "DisplayName" "Basis Code"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BasisCode" "DisplayVersion" "1.0.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BasisCode" "DisplayVersion" "1.1.0"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BasisCode" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BasisCode" "DisplayIcon" "$INSTDIR\BasisCode.exe"
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BasisCode" "NoModify" 1

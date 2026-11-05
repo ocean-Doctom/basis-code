@@ -2,6 +2,7 @@
 #include "codeeditor.h"
 #include "chatgptpage.h"
 #include "devtools.h"
+#include "builtinextensions.h"
 #include <QPushButton>
 #include <QActionGroup>
 #include <QCryptographicHash>
@@ -14,6 +15,7 @@
 #include <QClipboard>
 #include <QUrl>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QPainter>
 #include <QSettings>
 #include "windowtitlebar.h"
@@ -51,6 +53,9 @@
 #include <QStackedWidget>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QSpinBox>
+#include <QComboBox>
+#include <QCheckBox>
 #include <QStatusBar>
 #include <QStringConverter>
 #include <QStyle>
@@ -234,7 +239,6 @@ void Notepad::createWorkspace() {
     runButton->setCheckable(true);
     railLayout->addStretch();
     settingsButton = railButton("settings", tr("设置"), "settingsButton");
-    settingsButton->setPopupMode(QToolButton::InstantPopup);
     rootLayout->addWidget(rail);
 
     splitter = new QSplitter(Qt::Horizontal, root);
@@ -326,6 +330,8 @@ void Notepad::createWorkspace() {
         menu.addAction(tr("打开项目"), this, [this, path] { openProject(path); });
         menu.addAction(tr("修改项目显示名称…"), this, [this, path] { renameProject(path, false); });
         menu.addAction(tr("修改文件夹名称…"), this, [this, path] { renameProject(path, true); });
+        menu.addSeparator();
+        menu.addAction(tr("从最近项目移除"), this, [this, path] { removeRecentProject(path); });
         menu.exec(recentList->viewport()->mapToGlobal(point));
     });
     fileModel = new QFileSystemModel(this);
@@ -343,6 +349,8 @@ void Notepad::createWorkspace() {
     projectTree->setIconSize(QSize(16, 16));
     projectTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     projectTree->setSelectionMode(QAbstractItemView::SingleSelection);
+    projectTree->setFocusPolicy(Qt::StrongFocus);
+    projectTree->installEventFilter(this);
     for (int column = 1; column < fileModel->columnCount(); ++column)
         projectTree->hideColumn(column);
     projectTree->hide();
@@ -377,6 +385,9 @@ void Notepad::createWorkspace() {
                 reveal->setEnabled(hasItem);
                 if (isImage) {
                     menu.addAction(tr("在图像预览中打开"), this, [this, path] { previewImage(path); });
+                }
+                if (hasItem && !isDir) {
+                    menu.addAction(tr("固定到预览"), this, [this, path] { pinToPreview(path); });
                 }
                 QAction *openTerminal = menu.addAction(tr("在集成终端中打开"), this, [this, folder] { openTerminalAt(folder); });
                 openTerminal->setEnabled(hasItem);
@@ -463,6 +474,8 @@ void Notepad::createWorkspace() {
             [this](bool checked) { showSidebarPage(0, checked); });
     connect(extensionsButton, &QToolButton::clicked, this,
             [this](bool checked) { showSidebarPage(1, checked); });
+    connect(settingsButton, &QToolButton::clicked, this,
+            [this] { openSettings(); });
 
     auto *mainArea = new QWidget(splitter);
     mainArea->setObjectName("mainArea");
@@ -494,18 +507,61 @@ void Notepad::createWorkspace() {
     helpButton = menuButton(tr("帮助"));
     saveButton = new QToolButton(header);
     saveButton->setObjectName("saveButton");
+    saveButton->setText(tr("运行"));
+    saveButton->setPopupMode(QToolButton::InstantPopup);
+    saveButton->setToolTip(tr("运行与调试"));
+    saveButton->setCursor(Qt::PointingHandCursor);
+    auto *runMenu = new QMenu(saveButton);
+    // 启动 / 停止
+    runMenu->addAction(tr("启动调试"), QKeySequence(Qt::Key_F5), this, [this] { buildAndRun(true); });
+    runMenu->addAction(tr("以非调试模式运行"), QKeySequence("Ctrl+F5"), this, [this] { buildAndRun(false); });
+    QAction *stopAct = runMenu->addAction(tr("停止"), QKeySequence("Shift+F5"), this, [this] { devTools->stop(); });
+    stopAct->setEnabled(false);
+    QAction *restartAct = runMenu->addAction(tr("重启"), QKeySequence("Ctrl+Shift+F5"), this, [this] { buildAndRun(true); });
+    restartAct->setEnabled(false);
+    runMenu->addSeparator();
+    // 配置
+    runMenu->addAction(tr("打开配置"), this, [this] { devTools->showCompilers(); });
+    runMenu->addAction(tr("添加配置…"), this, [this] { openToolkit("C/C++", QString()); });
+    runMenu->addSeparator();
+    // 单步调试（当前未接入调试器，处于禁用状态）
+    runMenu->addAction(tr("逐过程"), QKeySequence(Qt::Key_F10), this, [this] {})->setEnabled(false);
+    runMenu->addAction(tr("单步执行"), QKeySequence(Qt::Key_F11), this, [this] {})->setEnabled(false);
+    runMenu->addAction(tr("单步停止"), QKeySequence("Shift+F11"), this, [this] {})->setEnabled(false);
+    runMenu->addAction(tr("继续"), QKeySequence(Qt::Key_F5), this, [this] {})->setEnabled(false);
+    runMenu->addSeparator();
+    // 断点（当前未接入调试器，处于禁用状态）
+    runMenu->addAction(tr("切换断点"), QKeySequence(Qt::Key_F9), this, [this] {})->setEnabled(false);
+    auto *newBreakpoint = runMenu->addMenu(tr("新建断点"));
+    newBreakpoint->addAction(tr("函数断点"), this, [this] {});
+    newBreakpoint->addAction(tr("条件断点"), this, [this] {});
+    newBreakpoint->setEnabled(false);
+    runMenu->addAction(tr("启用所有断点"), this, [this] {})->setEnabled(false);
+    runMenu->addAction(tr("禁用所有断点"), this, [this] {})->setEnabled(false);
+    runMenu->addAction(tr("删除所有断点"), this, [this] {})->setEnabled(false);
+    runMenu->addSeparator();
+    runMenu->addAction(tr("安装附加调试器…"), this, [this] { openToolkit("C/C++", QString()); });
+    saveButton->setMenu(runMenu);
     headerLayout->addSpacing(10);
     headerLayout->addWidget(saveButton);
     auto *terminalButton = new QToolButton(header);
     terminalButton->setObjectName("headerTerminalButton");
-    terminalButton->setIcon(QIcon(":/icons/terminal.svg"));
-    terminalButton->setIconSize(QSize(18, 18));
+    terminalButton->setText(tr("终端"));
+    terminalButton->setPopupMode(QToolButton::InstantPopup);
     terminalButton->setToolTip(tr("打开终端"));
     terminalButton->setAccessibleName(tr("打开终端"));
     terminalButton->setCursor(Qt::PointingHandCursor);
+    auto *terminalMenu = new QMenu(terminalButton);
+    terminalMenu->addAction(tr("新建终端"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_QuoteLeft),
+                            this, [this] { devTools->showTerminal(projectRoot); });
+    terminalMenu->addSeparator();
+    terminalMenu->addAction(tr("运行活动文件"), this, [this] { buildAndRun(); });
+    terminalMenu->addAction(tr("调试当前文件"), QKeySequence("Shift+F5"), this, [this] { buildAndRun(true); });
+    terminalMenu->addSeparator();
+    terminalMenu->addAction(tr("终止任务"), this, [this] { devTools->stop(); });
+    terminalButton->setMenu(terminalMenu);
     headerLayout->addSpacing(10);
     headerLayout->addWidget(terminalButton);
-    connect(terminalButton, &QToolButton::clicked, this, [this] { devTools->showTerminal(projectRoot); });
     outerLayout->addWidget(header);
     outerLayout->addWidget(body, 1);
     tabs = new QTabWidget(mainArea);
@@ -516,16 +572,51 @@ void Notepad::createWorkspace() {
     tabs->tabBar()->setExpanding(false);
     tabs->setElideMode(Qt::ElideMiddle);
     tabs->setUsesScrollButtons(true);
-    auto *addTabButton = new QToolButton(tabs);
-    addTabButton->setText("＋");
-    addTabButton->setObjectName("addTabButton");
-    addTabButton->setToolTip(tr("新建文件 (Ctrl+N)"));
-    tabs->setCornerWidget(addTabButton, Qt::TopRightCorner);
-    connect(addTabButton, &QToolButton::clicked, this, &Notepad::newDocument);
+
+    // 水平分栏：左侧主编辑器区 + 右侧预览区
+    editorSplit = new QSplitter(Qt::Horizontal, mainArea);
+    editorSplit->setObjectName("editorSplit");
+    editorSplit->setChildrenCollapsible(false);
+    editorSplit->addWidget(tabs);
+
+    // 右侧预览面板
+    previewPane = new QWidget(editorSplit);
+    previewPane->setObjectName("previewPane");
+    auto *previewLayout = new QVBoxLayout(previewPane);
+    previewLayout->setContentsMargins(0, 0, 0, 0);
+    previewLayout->setSpacing(0);
+    auto *previewHeader = new QWidget(previewPane);
+    previewHeader->setObjectName("previewHeader");
+    auto *previewHeaderLayout = new QHBoxLayout(previewHeader);
+    previewHeaderLayout->setContentsMargins(10, 6, 6, 6);
+    previewHeaderLayout->setSpacing(6);
+    previewTitle = new QLabel(tr("预览"), previewHeader);
+    previewTitle->setObjectName("previewTitle");
+    previewHeaderLayout->addWidget(previewTitle);
+    previewHeaderLayout->addStretch();
+    auto *closePreviewBtn = new QToolButton(previewHeader);
+    closePreviewBtn->setText(tr("×"));
+    closePreviewBtn->setObjectName("closePreviewButton");
+    closePreviewBtn->setToolTip(tr("关闭预览"));
+    closePreviewBtn->setAutoRaise(true);
+    closePreviewBtn->setCursor(Qt::PointingHandCursor);
+    connect(closePreviewBtn, &QToolButton::clicked, this, &Notepad::closePreview);
+    previewHeaderLayout->addWidget(closePreviewBtn);
+    previewLayout->addWidget(previewHeader);
+    previewEditor = new CodeEditor(previewPane);
+    previewEditor->setObjectName("previewEditor");
+    previewEditor->setReadOnly(true);
+    previewEditor->setFrameShape(QFrame::NoFrame);
+    previewEditor->setColorTheme(themeName);
+    previewEditor->setLineWrapMode(QPlainTextEdit::NoWrap);
+    previewLayout->addWidget(previewEditor, 1);
+    editorSplit->addWidget(previewPane);
+    previewPane->hide();
+
     auto *codeSplit = new QSplitter(Qt::Vertical, mainArea);
     codeSplit->setObjectName("codeOutputSplitter");
     codeSplit->setChildrenCollapsible(false);
-    codeSplit->addWidget(tabs);
+    codeSplit->addWidget(editorSplit);
     mainLayout->addWidget(codeSplit, 1);
     connect(tabs, &QTabWidget::currentChanged, this,
             &Notepad::activateDocument);
@@ -576,6 +667,10 @@ void Notepad::createExtensionsPage() {
     addToolkit("python", tr("Python"), tr("配置 Python，运行脚本并使用 PDB 调试。"));
     addToolkit("chatgpt", "ChatGPT", tr("在 Basis Code 中使用 ChatGPT 官网，登录你的现有账号。"));
     addToolkit("deepseek", "DeepSeek", tr("使用 DeepSeek 官方 API，配置密钥后开始聊天。"));
+    addToolkit("cpp", "Markdown Preview", tr("实时 Markdown 预览，编辑后自动刷新。"));
+    addToolkit("java", "JSON Tools", tr("JSON 校验和格式化，支持撤销。"));
+    addToolkit("python", "Whitespace Cleaner", tr("清理行尾空白与多余尾行。"));
+    addToolkit("cpp", "Git Changes", tr("异步查看工作区 Git 状态和差异。"));
     layout->addWidget(list);
     connect(search, &QLineEdit::textChanged, list, [list](const QString &text) {
         for (int row = 0; row < list->count(); ++row) {
@@ -590,6 +685,299 @@ void Notepad::createExtensionsPage() {
     connect(list, &QListWidget::itemActivated, this, open);
 }
 
+void Notepad::openSettings() {
+    // 若设置页已在某个标签页中打开，直接聚焦
+    for (int i = 0; i < tabs->count(); ++i) {
+        if (tabs->widget(i)->property("isSettingsPage").toBool()) {
+            tabs->setCurrentIndex(i);
+            return;
+        }
+    }
+    auto *page = new QWidget(tabs);
+    page->setObjectName("settingsPage");
+    page->setProperty("isSettingsPage", true);
+    auto *root = new QVBoxLayout(page);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+
+    QSettings cfg(DevTools::dataRoot() + "/settings.ini", QSettings::IniFormat);
+
+    // ── 顶部标题 + 搜索 ──
+    auto *headerRow = new QHBoxLayout;
+    headerRow->setContentsMargins(16, 12, 16, 8);
+    auto *title = new QLabel(tr("设置"), page);
+    title->setObjectName("settingsTitle");
+    headerRow->addWidget(title);
+    headerRow->addStretch();
+    auto *search = new QLineEdit(page);
+    search->setObjectName("settingsSearch");
+    search->setPlaceholderText(tr("搜索设置"));
+    search->setClearButtonEnabled(true);
+    search->setFixedWidth(220);
+    headerRow->addWidget(search);
+    root->addLayout(headerRow);
+
+    // ── 主体：左侧分类 + 右侧设置项 ──
+    auto *body = new QHBoxLayout;
+    body->setContentsMargins(0, 0, 0, 0);
+    body->setSpacing(0);
+
+    auto *nav = new QListWidget(page);
+    nav->setObjectName("settingsNav");
+    nav->setFixedWidth(180);
+    nav->setFrameShape(QFrame::NoFrame);
+    const QStringList categories = {
+        tr("常用设置"), tr("文本编辑器"), tr("工作台"), tr("窗口"),
+        tr("聊天"), tr("功能"), tr("应用程序"), tr("安全性"), tr("扩展")};
+    for (const QString &c : categories)
+        nav->addItem(c);
+    body->addWidget(nav);
+
+    auto *contentStack = new QStackedWidget(page);
+    contentStack->setObjectName("settingsContent");
+    body->addWidget(contentStack, 1);
+    root->addLayout(body, 1);
+
+    // 每个分类一个页面；常用设置页承载核心可编辑设置项
+    auto makeCategoryPage = [contentStack](const QString &) {
+        auto *p = new QWidget(contentStack);
+        auto *l = new QVBoxLayout(p);
+        l->setContentsMargins(20, 16, 20, 16);
+        return p;
+    };
+
+    // ── 常用设置页 ──
+    auto *common = makeCategoryPage(tr("常用设置"));
+    auto *commonLayout = qobject_cast<QVBoxLayout *>(common->layout());
+    auto *commonScroll = new QScrollArea(common);
+    commonScroll->setWidgetResizable(true);
+    commonScroll->setFrameShape(QFrame::NoFrame);
+    commonScroll->setObjectName("settingsCommonScroll");
+    auto *commonInner = new QWidget;
+    commonInner->setObjectName("settingsCommonInner");
+    auto *commonInnerLayout = new QVBoxLayout(commonInner);
+    commonInnerLayout->setContentsMargins(0, 0, 8, 0);
+    commonInnerLayout->setSpacing(18);
+    commonScroll->setWidget(commonInner);
+    commonLayout->addWidget(commonScroll);
+
+    // 设置项构造辅助：标题 + 描述 + 控件
+    auto addSetting = [commonInnerLayout](const QString &titleText,
+                                          const QString &descText,
+                                          QWidget *control) {
+        auto *block = new QVBoxLayout;
+        block->setSpacing(4);
+        auto *t = new QLabel(titleText);
+        t->setObjectName("settingsItemTitle");
+        auto *d = new QLabel(descText);
+        d->setObjectName("settingsItemDesc");
+        d->setWordWrap(true);
+        block->addWidget(t);
+        block->addWidget(d);
+        block->addWidget(control);
+        commonInnerLayout->addLayout(block);
+    };
+
+    // 0. 颜色主题
+    auto *colorTheme = new QComboBox(commonInner);
+    colorTheme->setObjectName("settingsCombo");
+    colorTheme->addItem(tr("亮色 · 清晰"), "light");
+    colorTheme->addItem("Tokyo Night", "tokyo-night");
+    colorTheme->addItem("GitHub Dark Default", "github-dark-default");
+    int themeIdx = colorTheme->findData(themeName);
+    colorTheme->setCurrentIndex(themeIdx < 0 ? 0 : themeIdx);
+    addSetting(tr("Workbench: Color Theme"),
+               tr("指定工作台使用的颜色主题。"), colorTheme);
+    connect(colorTheme, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this, colorTheme](int) {
+                setColorTheme(colorTheme->currentData().toString());
+            });
+
+    // 1. 字体大小
+    auto *fontSize = new QSpinBox(commonInner);
+    fontSize->setObjectName("settingsSpin");
+    fontSize->setRange(6, 72);
+    fontSize->setValue(editorFontSize);
+    fontSize->setSuffix(" px");
+    addSetting(tr("Editor: Font Size"),
+               tr("控制字体大小（像素）。"), fontSize);
+    connect(fontSize, qOverload<int>(&QSpinBox::valueChanged), this,
+            [this](int v) {
+                editorFontSize = v;
+                QSettings s(DevTools::dataRoot() + "/settings.ini", QSettings::IniFormat);
+                s.setValue("editor/fontSize", v);
+                applyEditorFont();
+            });
+
+    // 2. 字体系列
+    auto *fontFamily = new QComboBox(commonInner);
+    fontFamily->setObjectName("settingsCombo");
+    fontFamily->setEditable(true);
+    for (const auto &f : {"Cascadia Code", "Cascadia Mono", "Consolas",
+                          "Courier New", "JetBrains Mono", "Fira Code",
+                          "Source Code Pro", "monospace"})
+        fontFamily->addItem(QString::fromLatin1(f));
+    fontFamily->setCurrentText(editorFontFamily.isEmpty() ? "Consolas" : editorFontFamily);
+    addSetting(tr("Editor: Font Family"),
+               tr("控制字体系列。"), fontFamily);
+    connect(fontFamily, &QComboBox::currentTextChanged, this,
+            [this](const QString &family) {
+                editorFontFamily = family;
+                QSettings s(DevTools::dataRoot() + "/settings.ini", QSettings::IniFormat);
+                s.setValue("editor/fontFamily", family);
+                applyEditorFont();
+            });
+
+    // 3. 自动换行
+    auto *wordWrap = new QComboBox(commonInner);
+    wordWrap->setObjectName("settingsCombo");
+    wordWrap->addItem(tr("off"));
+    wordWrap->addItem(tr("on"));
+    wordWrap->addItem(tr("wordWrapColumn"));
+    const QString savedWrap = cfg.value("editor/wordWrap", "off").toString();
+    wordWrap->setCurrentIndex(savedWrap == "on" ? 1 : savedWrap == "wordWrapColumn" ? 2 : 0);
+    addSetting(tr("Editor: Word Wrap"),
+               tr("控制换行方式。"), wordWrap);
+    connect(wordWrap, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this, wordWrap](int) {
+                QSettings s(DevTools::dataRoot() + "/settings.ini", QSettings::IniFormat);
+                s.setValue("editor/wordWrap", wordWrap->currentText());
+                applyWordWrap();
+            });
+
+    // 4. 自动保存
+    auto *autoSave = new QComboBox(commonInner);
+    autoSave->setObjectName("settingsCombo");
+    autoSave->addItem(tr("off"));
+    autoSave->addItem(tr("afterDelay"));
+    autoSave->addItem(tr("onFocusChange"));
+    autoSave->setCurrentText(cfg.value("files/autoSave", false).toBool()
+                                 ? tr("afterDelay") : tr("off"));
+    addSetting(tr("Files: Auto Save"),
+               tr("控制具有未保存更改的编辑器的自动保存。"), autoSave);
+    connect(autoSave, &QComboBox::currentTextChanged, this,
+            [this](const QString &mode) {
+                QSettings s(DevTools::dataRoot() + "/settings.ini", QSettings::IniFormat);
+                s.setValue("files/autoSave", mode != "off");
+            });
+
+    // 5. 保存时格式化
+    auto *formatOnSave = new QCheckBox(tr("在保存时格式化文件"), commonInner);
+    formatOnSave->setObjectName("settingsCheck");
+    formatOnSave->setChecked(cfg.value("editor/formatOnSave", false).toBool());
+    addSetting(tr("Editor: Format On Save"),
+               tr("保存时设置文件格式。格式化程序必须可用，并且不得关闭编辑器。"), formatOnSave);
+    connect(formatOnSave, &QCheckBox::toggled, this, [](bool on) {
+        QSettings s(DevTools::dataRoot() + "/settings.ini", QSettings::IniFormat);
+        s.setValue("editor/formatOnSave", on);
+    });
+
+    // 6. 默认格式化程序
+    auto *defaultFormatter = new QComboBox(commonInner);
+    defaultFormatter->setObjectName("settingsCombo");
+    defaultFormatter->addItem(tr("无"));
+    defaultFormatter->addItem("clang-format");
+    defaultFormatter->addItem("astyle");
+    defaultFormatter->setCurrentText(cfg.value("editor/defaultFormatter", tr("无")).toString());
+    addSetting(tr("Editor: Default Formatter"),
+               tr("定义一个默认格式化程序，该格式化程序优先于所有其他格式化程序设置。"), defaultFormatter);
+    connect(defaultFormatter, &QComboBox::currentTextChanged, this,
+            [](const QString &f) {
+                QSettings s(DevTools::dataRoot() + "/settings.ini", QSettings::IniFormat);
+                s.setValue("editor/defaultFormatter", f);
+            });
+
+    commonInnerLayout->addStretch();
+
+    // 其余分类：占位说明
+    const QStringList placeholders = {
+        tr("文本编辑器相关设置"), tr("工作台相关设置"), tr("窗口相关设置"),
+        tr("聊天相关设置"), tr("功能相关设置"), tr("应用程序相关设置"),
+        tr("安全性相关设置"), tr("扩展相关设置")};
+    for (const QString &hint : placeholders) {
+        auto *p = new QWidget(contentStack);
+        auto *l = new QVBoxLayout(p);
+        l->setContentsMargins(20, 16, 20, 16);
+        auto *empty = new QLabel(tr("「%1」下暂无可配置项。").arg(hint), p);
+        empty->setObjectName("settingsEmpty");
+        empty->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+        l->addWidget(empty);
+        l->addStretch();
+        contentStack->addWidget(p);
+    }
+    contentStack->insertWidget(0, common);
+
+    connect(nav, &QListWidget::currentRowChanged, contentStack,
+            [contentStack](int row) { contentStack->setCurrentIndex(row); });
+    nav->setCurrentRow(0);
+
+    // 搜索：过滤导航分类（简单实现：匹配分类名或设置标题）
+    connect(search, &QLineEdit::textChanged, this, [nav, search](const QString &text) {
+        const QString t = text.trimmed();
+        for (int i = 0; i < nav->count(); ++i) {
+            auto *item = nav->item(i);
+            item->setHidden(!t.isEmpty() && !item->text().contains(t, Qt::CaseInsensitive));
+        }
+    });
+
+    // 从配置恢复字体设置
+    editorFontFamily = cfg.value("editor/fontFamily", QString()).toString();
+    editorFontSize = cfg.value("editor/fontSize", 12).toInt();
+
+    // 作为代码区的标签页打开
+    tabs->setCurrentIndex(tabs->addTab(page, QIcon(":/icons/settings.svg"), tr("设置")));
+}
+
+void Notepad::applyEditorFont() {
+    for (int i = 0; i < tabs->count(); ++i) {
+        auto *page = qobject_cast<QPlainTextEdit *>(tabs->widget(i));
+        if (!page) continue;
+        QFont font = page->font();
+        if (!editorFontFamily.isEmpty())
+            font.setFamily(editorFontFamily);
+        font.setPointSize(editorFontSize + zoomSteps);
+        page->setFont(font);
+        page->setTabStopDistance(QFontMetricsF(font).horizontalAdvance(' ') * 4);
+    }
+}
+
+void Notepad::applyWordWrap() {
+    QSettings s(DevTools::dataRoot() + "/settings.ini", QSettings::IniFormat);
+    const bool wrap = s.value("editor/wordWrap", "off").toString() == "on";
+    for (int i = 0; i < tabs->count(); ++i) {
+        auto *page = qobject_cast<QPlainTextEdit *>(tabs->widget(i));
+        if (!page) continue;
+        page->setLineWrapMode(wrap ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+    }
+    if (wrapAction) wrapAction->setChecked(wrap);
+}
+
+void Notepad::pinToPreview(const QString &path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, tr("无法预览"), file.errorString());
+        return;
+    }
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+    const QString text = stream.readAll();
+    previewEditor->setPlainText(text);
+    previewEditor->setFilePath(path);
+    previewTitle->setText(QFileInfo(path).fileName());
+    previewTitle->setToolTip(path);
+    previewPane->show();
+    // 首次显示时给预览区分配一半宽度
+    if (editorSplit->sizes().size() == 2 &&
+        editorSplit->sizes()[1] <= 0) {
+        const int total = editorSplit->width();
+        editorSplit->setSizes({total / 2, total / 2});
+    }
+}
+
+void Notepad::closePreview() {
+    previewPane->hide();
+}
+
 void Notepad::openToolkit(const QString &name, const QString &summary) {
     if (name == "ChatGPT" || name == "DeepSeek") { openAgent(name.toLower()); return; }
     for (int i = 0; i < tabs->count(); ++i) {
@@ -597,6 +985,16 @@ void Notepad::openToolkit(const QString &name, const QString &summary) {
             tabs->setCurrentIndex(i);
             return;
         }
+    }
+    if (QStringList{"Markdown Preview", "JSON Tools", "Whitespace Cleaner", "Git Changes"}.contains(name)) {
+        auto *source = editor;
+        if (!source) for (int i = tabs->count() - 1; i >= 0; --i) {
+            if (auto *candidate = qobject_cast<QPlainTextEdit *>(tabs->widget(i))) { source = candidate; break; }
+        }
+        const QString path = source ? source->property("filePath").toString() : QString();
+        auto *page = createBuiltinExtension(name, source, path, projectRoot, tabs);
+        tabs->setCurrentIndex(tabs->addTab(page, name));
+        return;
     }
     auto *details = new QScrollArea(tabs);
     details->setWidgetResizable(true);
@@ -1120,7 +1518,6 @@ void Notepad::createActions() {
     saveAction->setObjectName("actionSave");
     saveAction->setShortcut(QKeySequence::Save);
     connect(saveAction, &QAction::triggered, this, [this] { save(); });
-    saveButton->setDefaultAction(saveAction);
     auto *saveAsAction = fileMenu->addAction(tr("另存为…"));
     saveAsAction->setObjectName("actionSaveAs");
     saveAsAction->setShortcut(QKeySequence::SaveAs);
@@ -1286,14 +1683,6 @@ void Notepad::createActions() {
     preferencesMenu->addMenu(themeMenu);
     preferencesMenu->addAction(fontAction);
     preferencesMenu->addAction(storageAction);
-    auto *settingsMenu = new QMenu(settingsButton);
-    settingsMenu->addMenu(themeMenu);
-    settingsMenu->addMenu(agentMenu);
-    settingsMenu->addAction(storageAction);
-    settingsMenu->addAction(fontAction);
-    settingsMenu->addAction(wrapAction);
-    settingsMenu->addAction(sidebarAction);
-    settingsButton->setMenu(settingsMenu);
     auto *nextTab = viewMenu->addAction(tr("下一个文档"));
     nextTab->setShortcut(QKeySequence("Ctrl+Tab"));
     connect(nextTab, &QAction::triggered, this, [this] {
@@ -1421,7 +1810,6 @@ void Notepad::syncDocuments() {
 void Notepad::updateActions() {
     const bool hasProject = !projectRoot.isEmpty();
     findChild<QAction *>("actionNew")->setEnabled(hasProject);
-    findChild<QToolButton *>("addTabButton")->setEnabled(hasProject);
     findChild<QAction *>("actionNewFile")->setEnabled(hasProject);
     findChild<QAction *>("actionCloseProject")->setEnabled(hasProject);
     findChild<QAction *>("actionRevert")->setEnabled(editor && !currentFilePath().isEmpty());
@@ -1626,7 +2014,7 @@ void Notepad::updateStatus() {
         tr("第 %1 行，第 %2 列   ·   %3 个字符   ·   Tab: 4   ·   UTF-8")
             .arg(cursor.blockNumber() + 1)
             .arg(cursor.positionInBlock() + 1)
-            .arg(editor->toPlainText().toUcs4().size()));
+            .arg(qMax(0, editor->document()->characterCount() - 1)));
 }
 
 void Notepad::selectFont() {
@@ -1799,17 +2187,81 @@ void Notepad::refreshRecentProjects() {
     const auto projects = settings.value("projects/recent").toStringList();
     for (const auto &path : projects) {
         const QFileInfo info(path);
-        auto *item = new QListWidgetItem(style()->standardIcon(QStyle::SP_DirIcon),
-            info.fileName() + "\n" + QDir::toNativeSeparators(path), list);
-        item->setText(projectDisplayName(path) + "\n" + QDir::toNativeSeparators(path));
+        auto *item = new QListWidgetItem(list);
+        item->setText(projectDisplayName(path));
         item->setData(Qt::UserRole, path);
         item->setToolTip(path);
-        if (!info.isDir()) {
+        const bool missing = !info.isDir();
+        if (missing) {
             item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
             item->setToolTip(tr("此文件夹已移动或不存在：\n%1").arg(path));
         }
+
+        // 每行右侧嵌入一个「⋯」按钮，点击弹出操作菜单
+        auto *row = new QWidget(list);
+        row->setObjectName("recentProjectRow");
+        auto *rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(8, 4, 4, 4);
+        rowLayout->setSpacing(6);
+
+        auto *iconLabel = new QLabel(row);
+        iconLabel->setObjectName("recentProjectIcon");
+        iconLabel->setPixmap(style()->standardIcon(QStyle::SP_DirIcon).pixmap(18, 18));
+        iconLabel->setFixedSize(18, 18);
+        rowLayout->addWidget(iconLabel, 0, Qt::AlignTop);
+
+        auto *label = new QLabel(projectDisplayName(path), row);
+        label->setObjectName("recentProjectName");
+        label->setTextInteractionFlags(Qt::NoTextInteraction);
+        label->setToolTip(path);
+        label->setMinimumWidth(0);
+        label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        QFont pathFont = label->font();
+        pathFont.setPointSizeF(pathFont.pointSizeF() - 1.5);
+        auto *subLabel = new QLabel(QDir::toNativeSeparators(path), row);
+        subLabel->setObjectName("recentProjectPath");
+        subLabel->setFont(pathFont);
+        subLabel->setToolTip(path);
+        subLabel->setMinimumWidth(0);
+        subLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        auto *textBox = new QVBoxLayout();
+        textBox->setContentsMargins(0, 0, 0, 0);
+        textBox->setSpacing(1);
+        textBox->addWidget(label);
+        textBox->addWidget(subLabel);
+        rowLayout->addLayout(textBox, 1);
+
+        auto *more = new QToolButton(row);
+        more->setObjectName("recentProjectMore");
+        more->setText(QString::fromUtf8("⋮"));
+        more->setCursor(Qt::PointingHandCursor);
+        more->setAutoRaise(true);
+        more->setToolTip(tr("更多操作"));
+        more->setFixedSize(26, 26);
+        if (missing) more->setEnabled(false);
+        connect(more, &QToolButton::clicked, this, [this, more, path] {
+            QMenu menu(more);
+            menu.addAction(tr("打开项目"), this, [this, path] { openProject(path); });
+            menu.addAction(tr("修改项目显示名称…"), this, [this, path] { renameProject(path, false); });
+            menu.addAction(tr("修改文件夹名称…"), this, [this, path] { renameProject(path, true); });
+            menu.addSeparator();
+            menu.addAction(tr("从最近项目移除"), this, [this, path] { removeRecentProject(path); });
+            menu.exec(more->mapToGlobal(QPoint(0, more->height())));
+        });
+        rowLayout->addWidget(more);
+
+        item->setSizeHint(QSize(0, 44));
+        list->setItemWidget(item, row);
     }
     list->setVisible(!projects.isEmpty());
+}
+
+void Notepad::removeRecentProject(const QString &path) {
+    QSettings settings(DevTools::dataRoot() + "/settings.ini", QSettings::IniFormat);
+    auto projects = settings.value("projects/recent").toStringList();
+    projects.removeAll(path);
+    settings.setValue("projects/recent", projects);
+    refreshRecentProjects();
 }
 
 QString Notepad::projectDisplayName(const QString &path) const {
@@ -2030,6 +2482,48 @@ bool Notepad::eventFilter(QObject *watched, QEvent *event) {
         static_cast<QMouseEvent *>(event)->button() == Qt::LeftButton && !projectRoot.isEmpty()) {
         renameProject(projectRoot, false);
         return true;
+    }
+    if (watched == projectTree && event->type() == QEvent::KeyPress) {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        const QModelIndex index = projectTree->currentIndex();
+        if (!index.isValid()) return false;
+        const QString path = fileModel->filePath(index);
+        const bool isDir = fileModel->isDir(index);
+        const QString folder = isDir ? path : QFileInfo(path).absolutePath();
+        const bool isRoot = samePath(path, projectRoot);
+        const int key = keyEvent->key();
+        const auto mods = keyEvent->modifiers();
+
+        // Delete：删除（或回收站，遵循系统）
+        if (key == Qt::Key_Delete && !isRoot) {
+            deleteTreeItem(path);
+            return true;
+        }
+        // F2：重命名
+        if (key == Qt::Key_F2 && (mods & Qt::ControlModifier) == 0) {
+            renameTreeItem(path);
+            return true;
+        }
+        // Enter：打开文件/展开目录
+        if ((key == Qt::Key_Return || key == Qt::Key_Enter) && !isDir) {
+            loadFile(path);
+            return true;
+        }
+        // Ctrl+C / Ctrl+X / Ctrl+V：复制 / 剪切 / 粘贴
+        if (mods & Qt::ControlModifier) {
+            if (key == Qt::Key_C && !isRoot) {
+                copyTreeItem(path);
+                return true;
+            }
+            if (key == Qt::Key_X && !isRoot) {
+                cutTreeItem(path);
+                return true;
+            }
+            if (key == Qt::Key_V) {
+                pasteTreeItem(folder);
+                return true;
+            }
+        }
     }
     return QMainWindow::eventFilter(watched, event);
 }

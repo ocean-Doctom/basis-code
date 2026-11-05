@@ -9,6 +9,7 @@ class QPlainTextEdit;
 class QTabWidget;
 class QLineEdit;
 class QWidget;
+class QListWidget;
 
 class DevTools : public QObject {
     Q_OBJECT
@@ -41,6 +42,8 @@ class DevTools : public QObject {
   private:
     void log(const QString &text);
     void runExecutable();
+    void updateProblems(const QString &line);
+    void refreshProblemsBadge();
     QMainWindow *window;
     QProcess *process;
     QPlainTextEdit *output;
@@ -48,6 +51,8 @@ class DevTools : public QObject {
     QWidget *dock;
     QTabWidget *outputTabs;
     QWidget *terminal = nullptr;
+    QListWidget *problemsList = nullptr;
+    int problemCount = 0;
     QStringList launchArguments;
     bool debugging = false;
     QString activeLanguage;

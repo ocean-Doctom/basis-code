@@ -39,11 +39,11 @@ void SyntaxHighlighter::mark(int start, int length, const char *color, bool bold
     QTextCharFormat format;
     QString value = QString::fromLatin1(color);
     if (githubTheme) {
-        const QMap<QString, QString> colors{{"#794baa", "#ff7b72"}, {"#718774", "#8b949e"},
+        static const QMap<QString, QString> colors{{"#794baa", "#ff7b72"}, {"#718774", "#8b949e"},
             {"#a36136", "#a5d6ff"}, {"#426fae", "#79c0ff"}, {"#397168", "#d2a8ff"}, {"#986296", "#79c0ff"}};
         value = colors.value(value, value);
     } else if (darkTheme) {
-        const QMap<QString, QString> colors{{"#794baa", "#bb9af7"}, {"#718774", "#8b9a75"},
+        static const QMap<QString, QString> colors{{"#794baa", "#bb9af7"}, {"#718774", "#8b9a75"},
             {"#a36136", "#9ece6a"}, {"#426fae", "#7aa2f7"}, {"#397168", "#73daca"}, {"#986296", "#ff9e64"}};
         value = colors.value(value, value);
     }
@@ -54,8 +54,13 @@ void SyntaxHighlighter::mark(int start, int length, const char *color, bool bold
 void SyntaxHighlighter::highlightBlock(const QString &text) {
     setCurrentBlockState(0);
     if (mode.isEmpty()) return;
+    // Similar to VS Code's long-line tokenization limit: avoid blocking typing
+    // on minified/generated data. State 0 resumes normal parsing on later lines.
+    if (text.size() > 20000) return;
     const auto apply = [&](const QString &pattern, const char *color, bool bold = false) {
-        auto matches = QRegularExpression(pattern).globalMatch(text);
+        static thread_local QHash<QString, QRegularExpression> expressions;
+        if (!expressions.contains(pattern)) expressions.insert(pattern, QRegularExpression(pattern));
+        auto matches = expressions.value(pattern).globalMatch(text);
         while (matches.hasNext()) {
             const auto match = matches.next();
             mark(match.capturedStart(), match.capturedLength(), color, bold);
@@ -166,7 +171,8 @@ void SyntaxHighlighter::highlightBlock(const QString &text) {
         }
         if (mode == "html") { ++position; continue; }
         if (text[position].isDigit() && (position == 0 || (!text[position - 1].isLetterOrNumber() && text[position - 1] != '_'))) {
-            const auto match = QRegularExpression(R"((?:0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)[uUlLfF]*)").match(text, position);
+            static const QRegularExpression number(R"((?:0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)[uUlLfF]*)");
+            const auto match = number.match(text, position);
             if (match.hasMatch() && match.capturedStart() == position) {
                 mark(position, match.capturedLength(), "#986296"); position += match.capturedLength(); continue;
             }

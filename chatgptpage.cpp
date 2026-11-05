@@ -39,6 +39,8 @@
 #include <QPlainTextEdit>
 #include <QInputDialog>
 #include <QRegularExpression>
+#include <QThread>
+#include <QNetworkProxyFactory>
 #include <QTimer>
 #include <QUrlQuery>
 #include <QUuid>
@@ -239,6 +241,25 @@ struct ChatGptPage::State {
     QString pendingActionId;
     QPointer<QNetworkReply> agentReply;
     int agentIterations = 0;
+    bool agentCancelled = false;
+    bool toolRunning = false;
+
+    void runToolJob(std::function<QJsonObject(AgentTools &)> operation,
+                    std::function<void(const QJsonObject &)> done) {
+        toolRunning = true;
+        stop->show();
+        auto copy = std::make_shared<AgentTools>(tools);
+        auto result = std::make_shared<QJsonObject>();
+        auto *worker = QThread::create([copy, result, operation] { *result = operation(*copy); });
+        QObject::connect(worker, &QThread::finished, page, [this, copy, result, done] {
+            toolRunning = false;
+            tools = *copy;
+            if (agentCancelled) { busy(false); status->setText(QObject::tr("智能体已停止。")); return; }
+            done(*result);
+        });
+        QObject::connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        worker->start();
+    }
 
     explicit State(ChatGptPage *owner) : page(owner) {}
     QJsonObject account() const { return records[activeId].toObject(); }
@@ -248,7 +269,8 @@ struct ChatGptPage::State {
         send->setEnabled(!value && models->count() > 0);
         composer->setReadOnly(value);
         models->setEnabled(!value && models->count() > 0);
-        stop->setVisible(value && response);
+        stop->setVisible(value && (response || agentReply || toolRunning));
+        accountButton->setEnabled(!value);
     }
     bool lockCredentials() {
         credentialLock = std::make_unique<QLockFile>(directory + "/credentials.lock");
@@ -282,11 +304,15 @@ struct ChatGptPage::State {
         if (!bearer.isEmpty()) request.setRawHeader("Authorization", "Bearer " + bearer);
         request.setHeader(QNetworkRequest::ContentTypeHeader, form ? "application/x-www-form-urlencoded" : "application/json");
         auto *reply = body.isNull() ? network.get(request) : network.post(request, body);
-        QObject::connect(reply, &QNetworkReply::finished, page, [reply, result] {
+        QObject::connect(reply, &QNetworkReply::finished, page, [this, reply, result] {
             const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const auto object = QJsonDocument::fromJson(reply->readAll()).object();
+            const QString failure = reply->error() == QNetworkReply::NoError ? QString() :
+                QObject::tr("请求 %1 失败：HTTP %2，网络错误 %3（%4）。请检查系统代理、网络连通性及账号授权。")
+                    .arg(reply->url().host()).arg(code).arg(int(reply->error())).arg(reply->errorString());
             reply->deleteLater();
             result(object, code);
+            if (!failure.isEmpty()) status->setText(failure);
         });
     }
     void display() {
@@ -617,11 +643,13 @@ struct ChatGptPage::State {
         agentMessages = history;
         agentMessages.append(QJsonObject{{"role", "user"}, {"content", draft}});
         agentIterations = 0;
+        agentCancelled = false;
         answer.clear();
         display();
         continueAgentTurn();
     }
     void continueAgentTurn() {
+        if (agentCancelled) { busy(false); return; }
         if (++agentIterations > 20) {
             finishAgentTurn(QStringLiteral("智能体循环次数过多，已停止。"));
             return;
@@ -635,17 +663,21 @@ struct ChatGptPage::State {
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         request.setRawHeader("Authorization", "Bearer " + account()["access_token"].toString().toUtf8());
         agentReply = network.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+        stop->show();
         status->setText(QObject::tr("智能体思考中…"));
         QObject::connect(agentReply, &QNetworkReply::finished, page, [this] {
             auto *reply = agentReply.data(); agentReply = nullptr;
             const int httpCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const QJsonObject object = QJsonDocument::fromJson(reply->readAll()).object();
             reply->deleteLater();
+            if (agentCancelled) { busy(false); status->setText(QObject::tr("智能体已停止。")); return; }
             if (httpCode != 200) {
                 finishAgentTurn(httpCode == 401 ? QObject::tr("API Key 无效。") : QObject::tr("请求失败（%1）。").arg(httpCode));
                 return;
             }
-            const auto choice = object["choices"].toArray().first().toObject();
+            const auto choices = object["choices"].toArray();
+            if (choices.isEmpty()) { busy(false); status->setText(QObject::tr("服务未返回有效回复，请重试。")); return; }
+            const auto choice = choices.first().toObject();
             const auto message = choice["message"].toObject();
             const auto toolCalls = message["tool_calls"].toArray();
             // Append the assistant message (with any tool_calls) to history.
@@ -667,6 +699,7 @@ struct ChatGptPage::State {
         processNextToolCall(calls, 0);
     }
     void processNextToolCall(const QList<QJsonObject> &calls, int index) {
+        if (agentCancelled) { busy(false); return; }
         if (index >= calls.size()) { continueAgentTurn(); return; }
         const auto call = calls[index];
         const QString callId = call["id"].toString();
@@ -674,7 +707,22 @@ struct ChatGptPage::State {
         const QString name = fn["name"].toString();
         const QJsonObject arguments = QJsonDocument::fromJson(fn["arguments"].toString().toUtf8()).object();
         status->setText(QObject::tr("智能体正在调用工具：%1…").arg(name));
-        const auto result = tools.run(callId, name, arguments);
+        // Ask for permissions on the UI thread; execute approved work on a
+        // private worker so filesystem scans and compilers cannot freeze typing.
+        AgentTools probe = tools;
+        probe.setCommandPolicy(AgentTools::CommandPolicy::Confirm);
+        probe.setWritePolicy(AgentTools::WritePolicy::Confirm);
+        const bool mustConfirm = (name == "run_command" && tools.commandPolicy() == AgentTools::CommandPolicy::Confirm) ||
+                                 (name == "write_file" && tools.writePolicy() == AgentTools::WritePolicy::Confirm);
+        if (!mustConfirm) {
+            runToolJob([callId, name, arguments](AgentTools &workerTools) {
+                return workerTools.run(callId, name, arguments).payload;
+            }, [this, calls, index](const QJsonObject &message) {
+                agentMessages.append(message); processNextToolCall(calls, index + 1);
+            });
+            return;
+        }
+        const auto result = probe.run(callId, name, arguments);
         if (result.needsConfirm) {
             pendingActionId = result.pending;
             activeToolCallId = callId;
@@ -682,9 +730,15 @@ struct ChatGptPage::State {
             const auto choice = QMessageBox::question(page, QObject::tr("智能体请求确认"),
                 result.confirmPrompt, QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
             const bool approved = choice == QMessageBox::Yes;
-            const QJsonObject toolMessage = tools.resolvePending(pendingActionId, activeToolCallId, approved);
-            agentMessages.append(toolMessage);
-            processNextToolCall(calls, index + 1);
+            probe.setCommandPolicy(tools.commandPolicy());
+            probe.setWritePolicy(tools.writePolicy());
+            tools = probe;
+            const auto pending = pendingActionId;
+            runToolJob([pending, callId, approved](AgentTools &workerTools) {
+                return workerTools.resolvePending(pending, callId, approved);
+            }, [this, calls, index](const QJsonObject &message) {
+                agentMessages.append(message); processNextToolCall(calls, index + 1);
+            });
             return;
         }
         agentMessages.append(result.payload);
@@ -709,6 +763,7 @@ struct ChatGptPage::State {
 };
 
 ChatGptPage::ChatGptPage(QWidget *parent, const QString &provider) : QWidget(parent), state(std::make_unique<State>(this)) {
+    QNetworkProxyFactory::setUseSystemConfiguration(true);
     state->provider = provider;
     setObjectName(state->deepSeek() ? "deepseekPage" : "chatgptPage");
     setProperty("toolkitName", state->agentName());
@@ -883,7 +938,12 @@ ChatGptPage::ChatGptPage(QWidget *parent, const QString &provider) : QWidget(par
     connect(state->send, &QPushButton::clicked, this, [this] { state->sendMessage(); });
     auto *shortcut = new QShortcut(QKeySequence("Ctrl+Return"), this);
     connect(shortcut, &QShortcut::activated, state->send, &QPushButton::click);
-    connect(stop, &QPushButton::clicked, this, [this] { if (state->response) state->response->abort(); });
+    connect(stop, &QPushButton::clicked, this, [this] {
+        state->agentCancelled = true;
+        if (state->response) state->response->abort();
+        if (state->agentReply) state->agentReply->abort();
+        if (state->toolRunning) state->status->setText(tr("已请求停止，等待当前工具结束（命令最多 30 秒）。"));
+    });
     connect(clear, &QPushButton::clicked, this, [this] {
         if (state->response || !state->login->isEnabled()) return;
         state->history = {}; state->draft.clear(); state->answer.clear(); state->display();

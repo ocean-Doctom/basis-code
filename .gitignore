@@ -1,2 +1,7 @@
 /build/
 /.vscode/
+/.env
+/.env.*
+*.part
+credentials.bin
+settings.ini

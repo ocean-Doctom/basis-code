@@ -1,0 +1,11 @@
+Basis Code
+Copyright 2026 ocean-Doctom and contributors
+
+Basis Code source code is licensed under the Apache License, Version 2.0.
+Third-party components retain their original licenses and trademarks.
+See installer/licenses, icons/SOURCES.md, themes/SOURCES.md,
+themes/GitHub-LICENSE, and third_party/webview2/LICENSE.txt.
+
+Performance techniques were studied in microsoft/vscode (MIT):
+https://github.com/microsoft/vscode/blob/main/src/vs/editor/common/model/textModel.ts
+No VS Code implementation code is included in the native extension module.

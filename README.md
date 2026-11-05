@@ -1,5 +1,9 @@
 # Basis Code
 
+源码仓库：https://github.com/ocean-Doctom/basis-code · 许可证：[Apache-2.0](LICENSE)。第三方依赖保留各自许可证。
+
+1.1.0 增加可用的 Markdown Preview、JSON Tools、Whitespace Cleaner、Git Changes 原生扩展。在扩展列表点击打开；格式化作用于打开扩展时绑定的文档，可撤销。它们提供常见编辑器扩展能力，不支持直接安装 VS Code VSIX。完整开发、性能和验证记录见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+
 使用 C++17 和 Qt 6 Widgets 的轻量代码编辑器：最左侧图标栏、左侧项目文件树、右侧多选项卡代码区。
 文件/编辑/视图/帮助和保存入口合并进窗口标题栏，与最小化、最大化、关闭按钮同一行。
 标题栏空白处可拖动窗口，双击最大化/还原；Windows 支持边缘缩放。

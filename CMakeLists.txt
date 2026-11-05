@@ -18,6 +18,7 @@ add_executable(QtApp WIN32
     devtools.cpp devtools.h
     chatgptpage.cpp chatgptpage.h
     agenttools.cpp agenttools.h
+    builtinextensions.cpp builtinextensions.h
     syntaxhighlighter.cpp syntaxhighlighter.h
     codeeditor.cpp codeeditor.h
     windowtitlebar.cpp windowtitlebar.h
@@ -50,6 +51,12 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(ExtensionTests tests/extensions_tests.cpp builtinextensions.cpp agenttools.cpp)
+    target_include_directories(ExtensionTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(ExtensionTests PRIVATE Qt6::Widgets Qt6::Network)
+    add_dependencies(ExtensionTests QtApp)
+    add_test(NAME extensions_and_agent_boundaries COMMAND ExtensionTests)
+    set_tests_properties(extensions_and_agent_boundaries PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 20)
     add_executable(ChatGptTests ${DEVTOOLS_MOC} tests/chatgpt_tests.cpp devtools.cpp devtools.h terminalpane.cpp terminalpane.h agenttools.cpp agenttools.h)
     target_include_directories(ChatGptTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(ChatGptTests PRIVATE Qt6::Widgets Qt6::Network crypt32 bcrypt)
@@ -76,7 +83,7 @@ if(BUILD_TESTING)
     add_test(NAME codeeditor_line_numbers COMMAND CodeEditorTests)
     set_tests_properties(codeeditor_line_numbers PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
-    add_executable(NotepadTests ${DEVTOOLS_MOC} tests/notepad_tests.cpp terminalpane.cpp chatgptpage.cpp agenttools.cpp agenttools.h syntaxhighlighter.cpp devtools.cpp devtools.h notepad.cpp notepad.h codeeditor.cpp codeeditor.h windowtitlebar.cpp windowtitlebar.h)
+    add_executable(NotepadTests ${DEVTOOLS_MOC} tests/notepad_tests.cpp builtinextensions.cpp terminalpane.cpp chatgptpage.cpp agenttools.cpp agenttools.h syntaxhighlighter.cpp devtools.cpp devtools.h notepad.cpp notepad.h codeeditor.cpp codeeditor.h windowtitlebar.cpp windowtitlebar.h)
     target_include_directories(NotepadTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(NotepadTests PRIVATE Qt6::Widgets Qt6::PrintSupport Qt6::Network)
     qt_add_resources(NotepadTests test_workspace_assets PREFIX "/" FILES ${WORKSPACE_ASSETS})
@@ -88,7 +95,7 @@ if(BUILD_TESTING)
     )
     if(WIN32)
         target_link_libraries(NotepadTests PRIVATE dwmapi crypt32 bcrypt)
-        set_property(TEST chatgpt_native_and_credentials devtools_integration notepad_integration codeeditor_line_numbers APPEND PROPERTY ENVIRONMENT
+        set_property(TEST extensions_and_agent_boundaries chatgpt_native_and_credentials devtools_integration notepad_integration codeeditor_line_numbers APPEND PROPERTY ENVIRONMENT
             "QT_PLUGIN_PATH=${QT_BIN_DIR}/../plugins")
     endif()
 endif()

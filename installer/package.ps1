@@ -19,6 +19,10 @@ $stage = Join-Path $project ('build\package-' + [guid]::NewGuid().ToString('N'))
 $payload = Join-Path $stage 'payload'
 New-Item -ItemType Directory -Force $payload,$OutputDirectory | Out-Null
 Copy-Item -LiteralPath "$build\QtApp.exe" -Destination "$payload\BasisCode.exe"
+Copy-Item "$project\LICENSE" "$payload\LICENSE"
+Copy-Item "$project\NOTICE" "$payload\NOTICE"
+$sourceCommit = git -C $project rev-parse HEAD
+@{ version = '1.1.0'; sourceCommit = $sourceCommit; repository = 'https://github.com/ocean-Doctom/basis-code' } | ConvertTo-Json | Set-Content "$payload\release.json" -Encoding utf8
 Get-ChildItem $build -Filter '*.dll' -File | Copy-Item -Destination $payload
 foreach ($folder in @('platforms','styles','imageformats','iconengines','generic','networkinformation','tls')) {
     if (Test-Path "$build\$folder") { Copy-Item -LiteralPath "$build\$folder" -Destination $payload -Recurse }
@@ -38,6 +42,6 @@ $lines += @(Get-ChildItem $payload -Recurse -Directory | Sort-Object { $_.FullNa
 $lines | Set-Content -LiteralPath "$stage\uninstall-files.nsh" -Encoding utf8
 & $MakeNsis "/DPAYLOAD=$payload" "/DOUTPUT=$OutputDirectory" "$PSScriptRoot\setup.nsi"
 if ($LASTEXITCODE) { throw 'Installer compilation failed' }
-$installer = Join-Path $OutputDirectory 'BasisCode-Setup-1.0.0-x64.exe'
+$installer = Join-Path $OutputDirectory 'BasisCode-Setup-1.1.0-x64.exe'
 (Get-FileHash $installer -Algorithm SHA256).Hash + '  ' + (Split-Path $installer -Leaf) | Set-Content "$installer.sha256" -Encoding ascii
 Write-Output "Installer: $installer"

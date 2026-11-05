@@ -25,7 +25,8 @@ QString norm(const QString &path) {
 }  // namespace
 
 void AgentTools::setWorkRoot(const QString &path) {
-    workRoot_ = QFileInfo(path).isDir() ? QDir(path).absolutePath() : QString();
+    workRoot_ = QFileInfo(path).isDir() ? QFileInfo(path).canonicalFilePath() : QString();
+    pending_actions_.clear();
 }
 
 QString AgentTools::resolve(const QString &path) const {
@@ -34,18 +35,23 @@ QString AgentTools::resolve(const QString &path) const {
     const QString clean = norm(path);
     if (clean.isEmpty()) return {};
     // Absolute path must live inside the work root.
-    if (QDir::isAbsolutePath(clean)) {
-        const QString abs = QDir::cleanPath(clean);
-        const QString rel = root.relativeFilePath(abs);
-        if (rel.isEmpty() || rel == "." || rel.startsWith("../") || rel.startsWith("..\\") ||
-            QDir::isAbsolutePath(rel))
-            return {};
-        return abs;
-    }
-    // Relative path resolved against the work root; reject any ".." escape.
     const QString abs = root.absoluteFilePath(clean);
     const QString rel = root.relativeFilePath(abs);
-    if (rel.startsWith("../") || rel.startsWith("..\\") || QDir::isAbsolutePath(rel)) return {};
+    if (rel == ".." || rel.startsWith("../") || rel.startsWith("..\\") || QDir::isAbsolutePath(rel)) return {};
+    // Check existing ancestors too: junctions/symlinks can leave the root even
+    // when the lexical path is inside it. New file names inherit this check.
+    QFileInfo ancestor(abs);
+    while (!ancestor.exists()) {
+        if (ancestor.isSymLink()) return {};
+        const QString parent = ancestor.absolutePath();
+        if (parent == ancestor.absoluteFilePath()) return {};
+        ancestor.setFile(parent);
+    }
+    const QString canonical = ancestor.canonicalFilePath();
+    if (canonical.isEmpty()) return {};
+    const QString actualRelative = root.relativeFilePath(canonical);
+    if (actualRelative == ".." || actualRelative.startsWith("../") ||
+        QDir::isAbsolutePath(actualRelative)) return {};
     return QDir::cleanPath(abs);
 }
 
@@ -242,6 +248,15 @@ QString AgentTools::runCommand(const QJsonObject &args, QJsonObject &content, bo
     // Execute synchronously with a timeout. Reuse the PowerShell encoded-command
     // approach already used by the terminal pane so output stays UTF-8 safe.
     QProcess process;
+    QByteArray standardOutput, standardError;
+    auto collect = [&] {
+        const auto out = process.readAllStandardOutput();
+        const auto err = process.readAllStandardError();
+        standardOutput += out.left(qMax(0, int(kMaxReadBytes) - int(standardOutput.size())));
+        standardError += err.left(qMax(0, int(kMaxReadBytes) - int(standardError.size())));
+    };
+    QObject::connect(&process, &QProcess::readyReadStandardOutput, &process, collect);
+    QObject::connect(&process, &QProcess::readyReadStandardError, &process, collect);
     process.setWorkingDirectory(cwd);
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert("PYTHONIOENCODING", "utf-8");
@@ -273,17 +288,21 @@ QString AgentTools::runCommand(const QJsonObject &args, QJsonObject &content, bo
         process.kill();
         process.waitForFinished(2000);
         content["error"] = "command timed out (30s)";
-        content["stdout"] = QString::fromUtf8(process.readAllStandardOutput());
-        content["stderr"] = QString::fromUtf8(process.readAllStandardError());
+        collect();
+        content["stdout"] = QString::fromUtf8(standardOutput);
+        content["stderr"] = QString::fromUtf8(standardError);
         return "run_command";
     }
-    content["stdout"] = QString::fromUtf8(process.readAllStandardOutput());
-    content["stderr"] = QString::fromUtf8(process.readAllStandardError());
+    collect();
+    content["stdout"] = QString::fromUtf8(standardOutput);
+    content["stderr"] = QString::fromUtf8(standardError);
     content["exitCode"] = process.exitCode();
     return "run_command";
 }
 
 bool AgentTools::allowlistedCommand(const QString &command) {
+    // Reject shell composition rather than approving only its first command.
+    if (command.contains(QRegularExpression(R"([\r\n;&|<>`$])"))) return false;
     const QString first = command.section(QRegularExpression("\\s+"), 0, 0).toLower();
     static const QSet<QString> allowed = {
         "ls", "dir", "pwd", "cd", "cat", "type", "git", "g++", "gcc", "clang++", "clang",

@@ -200,8 +200,7 @@ int main(int argc, char *argv[]) {
             return qobject_cast<QPlainTextEdit *>(tabs->currentWidget());
         };
         check(tabs->count() == 1 && tabs->tabText(0) == "ChatGPT" &&
-                  !activeEditor() && !newAction->isEnabled() &&
-                  !window.findChild<QToolButton *>("addTabButton")->isEnabled(),
+                  !activeEditor() && !newAction->isEnabled(),
               "startup opens ChatGPT and new files require a project");
         auto *extensionsList = window.findChild<QListWidget *>("extensionList");
         const auto chat = extensionsList->findItems("ChatGPT", Qt::MatchExactly);

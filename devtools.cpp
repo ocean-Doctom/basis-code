@@ -14,6 +14,8 @@
 #include <QLabel>
 #include <QComboBox>
 #include <QListWidget>
+#include <QColor>
+#include <QAbstractItemView>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -552,7 +554,7 @@ bool DevTools::installRunner(const QString &language) {
 void DevTools::showTerminal(const QString &project) {
     dock->show();
     static_cast<TerminalPane *>(terminal)->start(project.isEmpty() ? projectsRoot() : project);
-    outputTabs->setCurrentIndex(1);
+    outputTabs->setCurrentWidget(terminal);
 }
 
 DevTools::DevTools(QMainWindow *parent) : QObject(parent), window(parent) {
@@ -563,31 +565,62 @@ DevTools::DevTools(QMainWindow *parent) : QObject(parent), window(parent) {
     dockLayout->setContentsMargins(0, 0, 0, 0);
     outputTabs = new QTabWidget(dock);
     outputTabs->setObjectName("outputTabs");
-    auto *body = new QWidget(outputTabs);
-    body->setObjectName("runOutputBody");
-    outputTabs->addTab(body, tr("运行与调试"));
-    terminal = new TerminalPane(outputTabs);
-    outputTabs->addTab(terminal, tr("终端"));
-    dockLayout->addWidget(outputTabs);
-    connect(outputTabs, &QTabWidget::currentChanged, this, [this](int index) {
-        if (index == 1) static_cast<TerminalPane *>(terminal)->start(projectsRoot());
+    outputTabs->setDocumentMode(true);
+    outputTabs->setTabsClosable(false);
+    outputTabs->setMovable(true);
+
+    // ── 标签 1：问题 ──
+    auto *problemsPage = new QWidget(outputTabs);
+    problemsPage->setObjectName("problemsPage");
+    auto *problemsLayout = new QVBoxLayout(problemsPage);
+    problemsLayout->setContentsMargins(0, 0, 0, 0);
+    auto *filterRow = new QHBoxLayout;
+    auto *filterEdit = new QLineEdit(problemsPage);
+    filterEdit->setObjectName("problemsFilter");
+    filterEdit->setPlaceholderText(tr("筛选器 (例如 text、**/*.ts、**/node_modules/**)"));
+    filterEdit->setClearButtonEnabled(true);
+    filterRow->addWidget(filterEdit);
+    problemsLayout->addLayout(filterRow);
+    problemsList = new QListWidget(problemsPage);
+    problemsList->setObjectName("problemsList");
+    problemsList->setSelectionMode(QAbstractItemView::NoSelection);
+    problemsList->setWordWrap(true);
+    problemsLayout->addWidget(problemsList);
+    auto *problemsEmpty = new QLabel(tr("尚无问题被检测到。\n运行或编译后，此处将显示错误与警告。"), problemsList->viewport());
+    problemsEmpty->setObjectName("problemsEmpty");
+    problemsEmpty->setAlignment(Qt::AlignCenter);
+    problemsEmpty->setGeometry(problemsList->viewport()->rect());
+    problemsEmpty->show();
+    connect(filterEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        for (int i = 0; i < problemsList->count(); ++i) {
+            auto *item = problemsList->item(i);
+            item->setHidden(!text.isEmpty() && !item->text().contains(text, Qt::CaseInsensitive));
+        }
     });
-    auto *layout = new QVBoxLayout(body);
-    auto *titleRow = new QHBoxLayout;
-    titleRow->addWidget(new QLabel(tr("运行与调试"), body));
-    titleRow->addStretch();
-    auto *hideOutput = new QToolButton(body);
-    hideOutput->setText(tr("收起"));
-    titleRow->addWidget(hideOutput);
-    layout->addLayout(titleRow);
-    connect(hideOutput, &QToolButton::clicked, dock, &QWidget::hide);
-    output = new QPlainTextEdit(body); output->setObjectName("runOutput"); output->setReadOnly(true); output->setMaximumBlockCount(10000);
-    layout->addWidget(output);
+    outputTabs->addTab(problemsPage, tr("问题"));
+
+    // ── 标签 2：输出 ──
+    auto *outPage = new QWidget(outputTabs);
+    outPage->setObjectName("runOutputBody");
+    auto *outLayout = new QVBoxLayout(outPage);
+    outLayout->setContentsMargins(0, 0, 0, 0);
+    output = new QPlainTextEdit(outPage);
+    output->setObjectName("runOutput");
+    output->setReadOnly(true);
+    output->setMaximumBlockCount(10000);
+    outLayout->addWidget(output);
+    outputTabs->addTab(outPage, tr("输出"));
+
+    // ── 标签 3：调试控制台 ──
+    auto *debugPage = new QWidget(outputTabs);
+    debugPage->setObjectName("debugConsolePage");
+    auto *debugLayout = new QVBoxLayout(debugPage);
+    debugLayout->setContentsMargins(8, 8, 8, 8);
     auto *debugRow = new QHBoxLayout;
     const QList<QPair<QString, QString>> commands = {
         {tr("继续"), "continue"}, {tr("单步"), "next"}, {tr("进入"), "step"}, {tr("变量"), "locals"}};
     for (const auto &item : commands) {
-        auto *button = new QPushButton(item.first, body);
+        auto *button = new QPushButton(item.first, debugPage);
         button->setObjectName("debug" + item.second);
         debugRow->addWidget(button);
         connect(button, &QPushButton::clicked, this, [this, command = item.second] {
@@ -607,12 +640,52 @@ DevTools::DevTools(QMainWindow *parent) : QObject(parent), window(parent) {
         });
     }
     debugRow->addStretch();
-    layout->addLayout(debugRow);
+    debugLayout->addLayout(debugRow);
+    auto *debugHint = new QLabel(tr("调试命令会直接发送到调试器。"), debugPage);
+    debugHint->setObjectName("debugHint");
+    debugLayout->addWidget(debugHint);
     auto *row = new QHBoxLayout;
-    input = new QLineEdit(body); input->setObjectName("runInput"); input->setPlaceholderText(tr("程序标准输入，按回车发送")); input->setEnabled(false); row->addWidget(input);
-    auto *eofButton = new QPushButton(tr("结束输入"), body); row->addWidget(eofButton);
+    input = new QLineEdit(debugPage); input->setObjectName("runInput"); input->setPlaceholderText(tr("调试命令 / 程序标准输入，按回车发送")); input->setEnabled(false); row->addWidget(input);
+    auto *eofButton = new QPushButton(tr("结束输入"), debugPage); row->addWidget(eofButton);
     connect(eofButton, &QPushButton::clicked, this, [this] { if (!compiling) process->closeWriteChannel(); });
-    auto *stopButton = new QPushButton(tr("停止"), body); row->addWidget(stopButton); layout->addLayout(row);
+    auto *stopButton = new QPushButton(tr("停止"), debugPage); row->addWidget(stopButton); debugLayout->addLayout(row);
+    debugLayout->addStretch();
+    outputTabs->addTab(debugPage, tr("调试控制台"));
+
+    // ── 标签 4：终端 ──
+    terminal = new TerminalPane(outputTabs);
+    outputTabs->addTab(terminal, tr("终端"));
+
+    // ── 标签 5：端口 ──
+    auto *portsPage = new QWidget(outputTabs);
+    portsPage->setObjectName("portsPage");
+    auto *portsLayout = new QVBoxLayout(portsPage);
+    auto *portsEmpty = new QLabel(tr("尚无已转发的端口。\n在调试会话中转发端口后，此处将显示相关信息。"), portsPage);
+    portsEmpty->setAlignment(Qt::AlignCenter);
+    portsLayout->addWidget(portsEmpty);
+    outputTabs->addTab(portsPage, tr("端口"));
+
+    dockLayout->addWidget(outputTabs);
+    connect(outputTabs, &QTabWidget::currentChanged, this, [this](int index) {
+        if (outputTabs->widget(index) == terminal) static_cast<TerminalPane *>(terminal)->start(projectsRoot());
+    });
+
+    // ── 右上角：面板操作 + 关闭 ──
+    auto *panelCorner = new QWidget(outputTabs);
+    panelCorner->setObjectName("panelCorner");
+    auto *cornerLayout = new QHBoxLayout(panelCorner);
+    cornerLayout->setContentsMargins(0, 0, 0, 0);
+    cornerLayout->setSpacing(2);
+    auto *closePanel = new QToolButton(panelCorner);
+    closePanel->setText(tr("×"));
+    closePanel->setObjectName("closePanelButton");
+    closePanel->setToolTip(tr("关闭面板"));
+    closePanel->setAutoRaise(true);
+    closePanel->setCursor(Qt::PointingHandCursor);
+    connect(closePanel, &QToolButton::clicked, dock, &QWidget::hide);
+    cornerLayout->addWidget(closePanel);
+    outputTabs->setCornerWidget(panelCorner, Qt::TopRightCorner);
+
     if (auto *split = window->findChild<QSplitter *>("codeOutputSplitter")) {
         split->addWidget(dock);
         split->setStretchFactor(0, 3);
@@ -649,6 +722,48 @@ DevTools::~DevTools() { process->disconnect(this); stop(); process->waitForFinis
 bool DevTools::busy() const { return process->state() != QProcess::NotRunning || compiling; }
 void DevTools::log(const QString &text) {
     auto cursor = output->textCursor(); cursor.movePosition(QTextCursor::End); cursor.insertText(text); output->setTextCursor(cursor); output->ensureCursorVisible();
+    // 解析编译错误/警告，更新「问题」面板
+    const QStringList lines = text.split('\n');
+    for (const QString &line : lines)
+        if (!line.trimmed().isEmpty())
+            updateProblems(line);
+}
+
+void DevTools::updateProblems(const QString &line) {
+    if (!problemsList) return;
+    // 常见编译错误/警告模式：文件:行:列: 错误/警告: 描述
+    const QRegularExpression re(
+        R"(^(.+?):(\d+):(\d+):\s*(错误|警告|error|warning|Error|Warning):?\s*(.*)$)");
+    const auto m = re.match(line);
+    if (m.hasMatch()) {
+        const QString file = m.captured(1).trimmed();
+        const QString kind = m.captured(4);
+        const QString msg = m.captured(5).trimmed();
+        const bool isError = kind.contains("错误") || kind.compare("error", Qt::CaseInsensitive) == 0;
+        auto *item = new QListWidgetItem(
+            tr("%1 · %2").arg(isError ? tr("错误") : tr("警告"), msg));
+        item->setToolTip(file);
+        item->setData(Qt::UserRole, file + ":" + m.captured(2) + ":" + m.captured(3));
+        item->setForeground(isError ? QColor(0xc6, 0x2b, 0x2b) : QColor(0xb0, 0x7a, 0x00));
+        problemsList->addItem(item);
+        ++problemCount;
+    } else {
+        // 宽松匹配：含 "error" 或 "错误" 的普通行也记入
+        const QString t = line.trimmed();
+        const bool hasError = t.contains("error", Qt::CaseInsensitive) || t.contains("错误");
+        const bool hasWarn = t.contains("warning", Qt::CaseInsensitive) || t.contains("警告");
+        if (hasError || hasWarn) {
+            auto *item = new QListWidgetItem(t);
+            item->setForeground(hasError ? QColor(0xc6, 0x2b, 0x2b) : QColor(0xb0, 0x7a, 0x00));
+            problemsList->addItem(item);
+            ++problemCount;
+        }
+    }
+    refreshProblemsBadge();
+}
+
+void DevTools::refreshProblemsBadge() {
+    outputTabs->setTabText(0, problemCount > 0 ? tr("问题 (%1)").arg(problemCount) : tr("问题"));
 }
 void DevTools::stop() {
     stopping = true;
@@ -669,8 +784,9 @@ void DevTools::buildAndRun(const QString &source, const QString &project, bool d
     if (busy())
         return;
     dock->show();
-    outputTabs->setCurrentIndex(0);
+    outputTabs->setCurrentIndex(1); // 输出
     output->clear();
+    if (problemsList) { problemsList->clear(); problemCount = 0; refreshProblemsBadge(); }
     const QString suffix = QFileInfo(source).suffix().toLower();
     const bool java = suffix == "java";
     const bool python = suffix == "py" || suffix == "pyw";
