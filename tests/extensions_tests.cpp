@@ -162,6 +162,52 @@ int main(int argc, char **argv) {
         results->itemActivated(results->topLevelItem(0), 0);
         check(navigated, "search result navigates to matching line");
         delete searchPage;
+        check(QDir().mkpath(root.filePath("task-source")), "create task source folder");
+        QFile todos(root.filePath("task-source/tasks.cpp"));
+        check(todos.open(QIODevice::WriteOnly), "create TODO fixture");
+        todos.write("// TODO: add tests\nint todoCount = 0;\n// FIXME: unicode path\n// hack: legacy branch\n"); todos.close();
+#ifdef Q_OS_WIN
+        QProcess taskLink;
+        taskLink.start(qEnvironmentVariable("SystemRoot") + "/System32/cmd.exe",
+            {"/d", "/c", "mklink", "/J", QDir::toNativeSeparators(root.filePath("task-alias")),
+             QDir::toNativeSeparators(root.filePath("task-source"))});
+        check(taskLink.waitForFinished(5000) && taskLink.exitCode() == 0, "create internal task junction fixture");
+#endif
+        check(hidden.open(QIODevice::WriteOnly | QIODevice::Truncate), "update excluded TODO fixture");
+        hidden.write("// TODO: dependency task\n"); hidden.close();
+        QFile filenameOnly(root.filePath("TODO-not-a-marker.txt"));
+        check(filenameOnly.open(QIODevice::WriteOnly), "create filename-only marker fixture");
+        filenameOnly.write("ordinary content\n"); filenameOnly.close();
+        bool todoNavigated = false;
+        auto *todoPage = createTodoTree(root.path(), [&](const QString &path, int line) {
+            todoNavigated = path == todos.fileName() && line == 3;
+        }, nullptr);
+        auto *todoResults = todoPage->findChild<QTreeWidget *>("projectSearchResults");
+        auto waitForTodo = [&](int count) {
+            timer.restart();
+            while (timer.elapsed() < 4000) {
+                app.processEvents();
+                if (todoResults->topLevelItemCount() == count &&
+                    todoPage->findChild<QLabel *>("projectSearchStatus")->text().contains(QString::fromUtf8("个结果"))) return true;
+                QThread::msleep(5);
+            }
+            return false;
+        };
+        check(waitForTodo(3), "TODO Tree auto-scans markers, ignores partial words, filenames and dependencies");
+        auto *todoFilter = todoPage->findChild<QLineEdit *>("projectSearchInput");
+        todoFilter->setText("unicode");
+        check(waitForTodo(1), "TODO Tree filters marker contents");
+        todoResults->itemActivated(todoResults->topLevelItem(0), 0);
+        check(todoNavigated, "TODO Tree navigates to exact source line");
+        check(todos.open(QIODevice::Append), "append a task"); todos.write("// TODO: unicode follow-up\n"); todos.close();
+        todoPage->findChild<QPushButton *>("projectSearchRefresh")->click();
+        check(waitForTodo(2), "TODO Tree refresh observes changed files");
+        todoFilter->clear();
+        todoPage->findChild<QPushButton *>("projectSearchCancel")->click();
+        timer.restart(); while (timer.elapsed() < 400) { app.processEvents(); QThread::msleep(5); }
+        check(todoPage->findChild<QLabel *>("projectSearchStatus")->text() == QString::fromUtf8("已取消。") &&
+              todoResults->topLevelItemCount() == 0, "cancel prevents a pending TODO scan from replacing results");
+        delete todoPage;
         std::cout << "Passed native extension and agent boundary checks\n"; return 0;
     } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

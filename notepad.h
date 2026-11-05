@@ -93,7 +93,7 @@ class Notepad : public QMainWindow {
     void pasteTreeItem(const QString &folder);
     void previewImage(const QString &path);
     void showTimeline(const QString &path);
-    void searchInFolder(const QString &folder);
+    void searchInFolder(const QString &folder, bool todos = false);
     void addToChat(const QString &path);
     void runTestsFor(const QString &path);
     void createSettingsPage();

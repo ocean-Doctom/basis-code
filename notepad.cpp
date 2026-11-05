@@ -85,14 +85,14 @@
 #endif
 
 static QIcon pluginIcon(const QString &name) {
-    if (name != "deepseek") return QIcon(":/icons/language-" + name + ".svg");
+    if (name != "deepseek" && name != "todo") return QIcon(":/icons/language-" + name + ".svg");
     QPixmap tile(192, 192);
     tile.fill(Qt::transparent);
     QPainter painter(&tile);
     painter.setRenderHint(QPainter::Antialiasing);
-    painter.setPen(Qt::NoPen); painter.setBrush(QColor("#edf3ff"));
+    painter.setPen(Qt::NoPen); painter.setBrush(QColor(name == "todo" ? "#fff0c2" : "#edf3ff"));
     painter.drawRoundedRect(QRectF(4, 4, 184, 184), 44, 44);
-    painter.drawPixmap(QRect(36, 36, 120, 120), QIcon(":/icons/deepseek-original.ico").pixmap(120, 120));
+    painter.drawPixmap(QRect(36, 36, 120, 120), QIcon(name == "todo" ? ":/icons/files.svg" : ":/icons/deepseek-original.ico").pixmap(120, 120));
     return QIcon(tile);
 }
 
@@ -709,6 +709,7 @@ void Notepad::createExtensionsPage() {
     addToolkit("cpp", "Git Changes", tr("异步查看工作区 Git 状态和差异。"));
     addToolkit("cpp", "Project Search", tr("可取消的后台项目搜索，匹配文件名和内容。"));
     addToolkit("python", "Find and Replace", tr("文档查找、循环定位和可撤销的批量替换。"));
+    addToolkit("todo", "TODO Tree", tr("后台汇总项目中的 TODO / FIXME 等文本标记，点击跳转源码。"));
     layout->addWidget(list);
     connect(search, &QLineEdit::textChanged, list, [list](const QString &text) {
         for (int row = 0; row < list->count(); ++row) {
@@ -1019,6 +1020,7 @@ void Notepad::closePreview() {
 void Notepad::openToolkit(const QString &name, const QString &summary) {
     if (name == "ChatGPT" || name == "DeepSeek") { openAgent(name.toLower()); return; }
     if (name == "Project Search") { searchInFolder(projectRoot); return; }
+    if (name == "TODO Tree") { searchInFolder(projectRoot, true); return; }
     const bool builtin = QStringList{"Markdown Preview", "JSON Tools", "Whitespace Cleaner", "Git Changes", "Find and Replace"}.contains(name);
     auto *source = editor ? editor : lastCodeEditor.data();
     if (builtin && !source) for (int i = tabs->count() - 1; i >= 0; --i) {
@@ -1420,20 +1422,22 @@ void Notepad::showTimeline(const QString &path) {
     dialog->resize(480, dialog->sizeHint().height());
     dialog->open();
 }
-void Notepad::searchInFolder(const QString &folder) {
+void Notepad::searchInFolder(const QString &folder, bool todos) {
     const QString root = QFileInfo(folder).canonicalFilePath();
+    const QString pageName = todos ? "todoTreePage" : "projectSearchPage";
     for (int i = 0; i < tabs->count(); ++i) {
-        if (tabs->widget(i)->objectName() == "projectSearchPage" && tabs->widget(i)->property("searchRoot") == root) {
+        if (tabs->widget(i)->objectName() == pageName && tabs->widget(i)->property("searchRoot") == root) {
             tabs->setCurrentIndex(i); return;
         }
     }
-    auto *page = createProjectSearch(root, {}, [this](const QString &path, int line) {
+    auto open = [this](const QString &path, int line) {
         if (!loadFile(path) || !editor || line <= 0) return;
         QTextCursor cursor(editor->document()->findBlockByNumber(line - 1));
         if (!cursor.isNull()) { editor->setTextCursor(cursor); editor->centerCursor(); }
-    }, tabs);
+    };
+    auto *page = todos ? createTodoTree(root, open, tabs) : createProjectSearch(root, {}, open, tabs);
     page->setProperty("searchRoot", root);
-    tabs->setCurrentIndex(tabs->addTab(page, tr("项目搜索")));
+    tabs->setCurrentIndex(tabs->addTab(page, todos ? QStringLiteral("TODO Tree") : tr("项目搜索")));
 }
 void Notepad::addToChat(const QString &path) {
     const QFileInfo info(path);

@@ -248,6 +248,24 @@ int main(int argc, char *argv[]) {
         check(recent->item(0)->text().startsWith(QString::fromUtf8("我的示例项目")) &&
                   QFileInfo::exists(temporary.path()), "project alias preserves its folder name");
         check(window.openProject(temporary.path()), "return to renamed project alias");
+        writeText(temporary.filePath("todo-example.cpp"), "// TODO: complete editor integration\n// FIXME: handle errors\n");
+        const auto todoEntries = extensionsList->findItems("TODO Tree", Qt::MatchExactly);
+        check(todoEntries.size() == 1 && !todoEntries.first()->icon().isNull(), "TODO Tree has a catalog entry and app icon");
+        extensionsList->itemClicked(todoEntries.first());
+        auto *todoPage = tabs->currentWidget();
+        check(todoPage && todoPage->objectName() == "todoTreePage" &&
+              todoPage->property("searchRoot").toString() == temporary.path(), "catalog opens TODO Tree bound to current project");
+        extensionsList->itemClicked(todoEntries.first());
+        check(tabs->count() == 1 && tabs->currentWidget() == todoPage, "TODO Tree reuses the current project tab");
+        if (qEnvironmentVariableIsSet("BASIS_TODO_PREVIEW_PATH")) {
+            auto *todoResults = todoPage->findChild<QTreeWidget *>("projectSearchResults");
+            QElapsedTimer wait; wait.start();
+            while (todoResults->topLevelItemCount() == 0 && wait.elapsed() < 4000) { app.processEvents(); QThread::msleep(5); }
+            window.findChild<QAction *>("actionGitHubDarkTheme")->trigger(); app.processEvents();
+            check(window.grab().save(qEnvironmentVariable("BASIS_TODO_PREVIEW_PATH")), "render TODO Tree in native dark window");
+        }
+        closeAction->trigger();
+        check(tabs->count() == 0, "TODO Tree closes without creating a document");
         window.findChild<QAction *>("actionDarkTheme")->trigger();
         check(window.palette().color(QPalette::Text).name() == "#c0caf5", "dark theme selected");
         window.findChild<QAction *>("actionLightTheme")->trigger();

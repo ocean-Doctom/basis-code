@@ -15,6 +15,13 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.5.0 TODO Tree follow-up
+
+- Added TODO Tree to the native extension catalog with an existing document icon on a rounded amber background. It scans TODO/FIXME/BUG/HACK/XXX text markers, including ordinary text; it is not a language-aware comment parser.
+- Reuses bounded, cancellable background project scanning. Opens one tab per project, auto-scans on entry, supports filtering and explicit refresh, and navigates to the source line. Existing project search also gains refresh and clearer table spacing.
+- Explicitly skips Windows junction entries as well as symbolic links, including aliases inside the project, to avoid duplicate traversal. Tests include actual internal and external junctions.
+- Temporary fixtures verify marker boundaries, filename/dependency exclusions, exact-line activation, observing file edits on refresh and cancelling a pending scan. Native-window integration checks catalog entry, icon and tab reuse. Actual dark-theme rendering was inspected.
+
 ## 1.4.5 bounded-output follow-up
 
 - Runner and terminal output keep the newest 256 Ki UTF-16 units in addition to their existing block limits. Oversized chunks are trimmed before insertion; truncation is visible, and surrogate-pair boundaries are preserved. This bounds displayed history, not all process memory or output production.
