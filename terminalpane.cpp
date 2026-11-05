@@ -1,4 +1,5 @@
 #include "terminalpane.h"
+#include "boundedoutput.h"
 #include "devtools.h"
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -30,6 +31,7 @@ TerminalPane::TerminalPane(QWidget *parent) : QWidget(parent) {
     output = new QPlainTextEdit(this);
     output->setObjectName("terminalOutput");
     output->setReadOnly(true);
+    output->setLineWrapMode(QPlainTextEdit::NoWrap);
     output->setMaximumBlockCount(15000);
     output->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     layout->addWidget(output, 1);
@@ -63,16 +65,7 @@ TerminalPane::TerminalPane(QWidget *parent) : QWidget(parent) {
         append(stdoutDecoder(shell->readAllStandardOutput()));
     });
     connect(shell, &QProcess::readyReadStandardError, this, [this] {
-        errorBuffer += stderrDecoder(shell->readAllStandardError());
-        int end;
-        while ((end = errorBuffer.indexOf('\n')) >= 0) {
-            const QString line = errorBuffer.left(end).trimmed();
-            errorBuffer.remove(0, end + 1);
-            if (line.startsWith("__BASIS_CWD__")) {
-                const auto folder = line.mid(13);
-                if (QFileInfo(folder).isDir()) currentDirectory = folder;
-            } else append(line + "\n");
-        }
+        consumeErrorText(stderrDecoder(shell->readAllStandardError()));
     });
     connect(shell, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) append(tr("\n无法启动终端：") + shell->errorString());
@@ -102,11 +95,23 @@ TerminalPane::~TerminalPane() {
     stopShell();
 }
 void TerminalPane::append(const QString &text) {
-    auto cursor = output->textCursor();
-    cursor.movePosition(QTextCursor::End);
-    cursor.insertText(text);
-    output->setTextCursor(cursor);
-    output->ensureCursorVisible();
+    appendBoundedOutput(output, text);
+}
+void TerminalPane::consumeErrorText(const QString &text) {
+    errorBuffer += text;
+    int end;
+    while ((end = errorBuffer.indexOf('\n')) >= 0) {
+        QString line = errorBuffer.left(end);
+        errorBuffer.remove(0, end + 1);
+        if (line.endsWith('\r')) line.chop(1);
+        if (line.startsWith("__BASIS_CWD__")) {
+            const auto folder = line.mid(13).trimmed();
+            if (QFileInfo(folder).isDir()) currentDirectory = folder;
+        } else append(line + "\n");
+    }
+    // A directory-control record fits within Windows' path-length limit.
+    // Ordinary stderr must not accumulate indefinitely waiting for a newline.
+    if (errorBuffer.size() > 65536) { append(errorBuffer); errorBuffer.clear(); }
 }
 void TerminalPane::stopShell() {
 #ifdef Q_OS_WIN
@@ -144,7 +149,7 @@ void TerminalPane::execute(const QString &text) {
         "[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false); "
         "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); "
         "$OutputEncoding = [Console]::OutputEncoding; try {\n" + text +
-        "\n} finally { [Console]::Error.WriteLine('__BASIS_CWD__' + (Get-Location).Path) }";
+        "\n} finally { [Console]::Error.WriteLine(); [Console]::Error.WriteLine('__BASIS_CWD__' + (Get-Location).Path) }";
     QByteArray utf16;
     for (const auto character : session) {
         utf16.append(char(character.unicode() & 255));

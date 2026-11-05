@@ -1,4 +1,5 @@
 #include "devtools.h"
+#include "boundedoutput.h"
 #include "terminalpane.h"
 #include <QTabWidget>
 #include <QMainWindow>
@@ -607,6 +608,7 @@ DevTools::DevTools(QMainWindow *parent) : QObject(parent), window(parent) {
     output = new QPlainTextEdit(outPage);
     output->setObjectName("runOutput");
     output->setReadOnly(true);
+    output->setLineWrapMode(QPlainTextEdit::NoWrap);
     output->setMaximumBlockCount(10000);
     outLayout->addWidget(output);
     outputTabs->addTab(outPage, tr("输出"));
@@ -732,7 +734,7 @@ DevTools::DevTools(QMainWindow *parent) : QObject(parent), window(parent) {
 DevTools::~DevTools() { process->disconnect(this); stop(); process->waitForFinished(3000); }
 bool DevTools::busy() const { return process->state() != QProcess::NotRunning || compiling; }
 void DevTools::log(const QString &text) {
-    auto cursor = output->textCursor(); cursor.movePosition(QTextCursor::End); cursor.insertText(text); output->setTextCursor(cursor); output->ensureCursorVisible();
+    appendBoundedOutput(output, text);
 }
 void DevTools::readProcessOutput(bool standardError) {
     const auto bytes = standardError ? process->readAllStandardError() : process->readAllStandardOutput();

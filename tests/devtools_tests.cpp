@@ -1,4 +1,5 @@
 #include "devtools.h"
+#include "terminalpane.h"
 #include <QProcess>
 #include <QApplication>
 #include <QMainWindow>
@@ -23,7 +24,31 @@
 #include <iostream>
 #include <stdexcept>
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+struct TerminalPaneTestAccess {
+    static void buffering(QWidget *parent, const QString &directory) {
+        TerminalPane pane(parent);
+        pane.start(directory);
+        pane.consumeErrorText(QString(3000000, 'e'));
+        check(pane.errorBuffer.size() < 65536 && pane.output->document()->characterCount() < 1000000,
+              "terminal stderr without newline cannot grow its parser or display indefinitely");
+        pane.consumeErrorText("\n  indented error\n__BASIS_CWD__" + directory + "\n");
+        check(pane.currentDirectory == directory && pane.output->toPlainText().endsWith("  indented error\n"),
+              "terminal retains stderr spacing and recognizes directory record after large output");
+    }
+};
 struct DevToolsTestAccess {
+    static void outputLimits(DevTools &tools) {
+        tools.log(QString(3000000, 'x') + "RECENT_OUTPUT");
+        check(tools.output->document()->characterCount() < 1000000 &&
+              tools.output->toPlainText().endsWith("RECENT_OUTPUT") &&
+              tools.output->toPlainText().startsWith("["), "huge unbroken output is bounded and retains latest text with notice");
+        for (int i = 0; i < 20; ++i) tools.log(QString(20000, 'y'));
+        tools.log(QString::fromUtf8("\n中文😀LATEST\n"));
+        check(tools.output->document()->characterCount() < 1000000 &&
+              tools.output->toPlainText().endsWith(QString::fromUtf8("中文😀LATEST\n")),
+              "repeated streaming output stays bounded and preserves recent Unicode");
+        tools.output->clear();
+    }
     static QMetaObject::Connection stopAfterCompile(DevTools &tools, bool &observed, bool &wasBusy) {
         return QObject::connect(tools.process, &QProcess::finished, &tools, [&tools, &observed, &wasBusy](int code, QProcess::ExitStatus exit) {
             if (!observed && tools.compiling && code == 0 && exit == QProcess::NormalExit) {
@@ -74,6 +99,8 @@ int main(int argc, char **argv) {
         check(QFileInfo::exists(compiler),"test compiler exists");
         QSettings config(DevTools::dataRoot()+"/settings.ini",QSettings::IniFormat); config.setValue("toolchain/compiler",compiler); config.sync();
         QMainWindow window; DevTools tools(&window);
+        TerminalPaneTestAccess::buffering(&window, temp.path());
+        DevToolsTestAccess::outputLimits(tools);
         DevToolsTestAccess::diagnostics(tools);
         auto *output=window.findChild<QPlainTextEdit *>("runOutput"); check(output,"output panel exists");
         auto execute=[&](const QString &source, bool stop=false, bool feedInput=false) {
@@ -173,6 +200,9 @@ int main(int argc, char **argv) {
         write(c,"#include <stdio.h>\nint main(void){puts(\"BASIS_C_OK zero errors\");return 0;}\n");
         check(execute(c)==0 && output->toPlainText().contains("BASIS_C_OK"),"C selects gcc and runs");
         check(window.findChild<QListWidget *>("problemsList")->count() == 0, "actual normal error-word output is not reported as a problem");
+        write(c,"#include <stdio.h>\nint main(void){for(int i=0;i<3000000;++i)putchar('x');puts(\"BASIS_OUTPUT_TAIL\");return 0;}\n");
+        check(execute(c)==0 && output->document()->characterCount() < 1000000 &&
+              output->toPlainText().contains("BASIS_OUTPUT_TAIL"), "real program with huge unbroken output finishes and retains tail in bounded view");
         write(cpp,"#include <iostream>\nint main(){int n;std::cin>>n;std::cout<<\"INPUT_\"<<(n*2);return 0;}\n");
         check(execute(cpp,false,true)==0 && output->toPlainText().contains("INPUT_48"),"program standard input");
         write(cpp,"this is invalid C++\n");

@@ -11,6 +11,8 @@ class TerminalPane : public QWidget {
     ~TerminalPane() override;
     void start(const QString &directory);
   private:
+    friend struct TerminalPaneTestAccess;
+    void consumeErrorText(const QString &text);
     void stopShell();
     void execute(const QString &text);
     QString errorBuffer;

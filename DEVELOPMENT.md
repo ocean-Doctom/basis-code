@@ -15,6 +15,13 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.4.5 bounded-output follow-up
+
+- Runner and terminal output keep the newest 256 Ki UTF-16 units in addition to their existing block limits. Oversized chunks are trimmed before insertion; truncation is visible, and surrogate-pair boundaries are preserved. This bounds displayed history, not all process memory or output production.
+- Output uses horizontal scrolling rather than automatic wrapping of extremely long lines.
+- The terminal stderr parser flushes unterminated data over 64 Ki units instead of buffering forever. Error indentation is retained. The final directory-control record starts on its own line even if a command's stderr had no newline.
+- Regression coverage includes three-million-character single-line chunks, repeated streaming and Unicode tails, terminal stderr buffering/control records, and an actual compiled C program producing three million characters without newlines. No throughput speedup is claimed.
+
 ## 1.4.4 file-operation follow-up
 
 - Directory deletion now checks every affected document before touching disk; cancelling a save prompt aborts deletion. Tabs are removed only after successful deletion, including individual-file deletion. Failed deletion leaves open buffers available.
