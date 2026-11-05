@@ -15,6 +15,13 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.4.0 large-document follow-up
+
+- Added automatic large-document syntax downgrade above 20 * 1024 * 1024 UTF-16 units or 100,000 text blocks, following the workload-threshold principle studied in VS Code's text model.
+- The status bar explicitly identifies large-file mode. Editing, line numbers and cursor status remain active; syntax formatting is skipped. Returning below the thresholds schedules a complete rehighlight after the edit finishes.
+- Regression fixtures exercise both a 21-million-unit document and 100,001-line content, and restoration to normal highlighting after shrinking each one.
+- This reduces tokenization work; it is not streaming file loading or an unlimited-file-size guarantee.
+
 ## 1.3.1 visual and feedback follow-up
 
 - Inspected actual native Windows renders of Find/Replace in light and GitHub dark themes, and Project Search in GitHub dark.

@@ -11,6 +11,7 @@ class CodeEditor : public QPlainTextEdit {
     void setDarkTheme(bool dark);
     void setColorTheme(const QString &name);
     void setFilePath(const QString &path);
+    bool largeFileMode() const;
 
   protected:
     void resizeEvent(QResizeEvent *event) override;

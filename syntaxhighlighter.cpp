@@ -4,6 +4,8 @@
 #include <QRegularExpression>
 #include <QTextBlock>
 #include <QTextCharFormat>
+#include <QTextDocument>
+#include <QTimer>
 
 namespace {
 class DelimiterData : public QTextBlockUserData {
@@ -11,7 +13,19 @@ class DelimiterData : public QTextBlockUserData {
     QString ending;
 };
 }
-SyntaxHighlighter::SyntaxHighlighter(QTextDocument *document) : QSyntaxHighlighter(document) {}
+SyntaxHighlighter::SyntaxHighlighter(QTextDocument *document) : QSyntaxHighlighter(document) {
+    connect(document, &QTextDocument::contentsChanged, this, [this] {
+        const bool large = largeFileMode();
+        if (lastLargeMode == large) return;
+        lastLargeMode = large;
+        // Reformat after the document finishes its edit; clear old formats on
+        // entry and rebuild all state when returning to normal-sized content.
+        QTimer::singleShot(0, this, [this] { rehighlight(); });
+    });
+}
+bool SyntaxHighlighter::largeFileMode() const {
+    return document() && (document()->characterCount() > 20 * 1024 * 1024 || document()->blockCount() > 100000);
+}
 void SyntaxHighlighter::setFilePath(const QString &path) {
     const QString extension = QFileInfo(path).suffix().toLower();
     mode.clear();
@@ -57,6 +71,7 @@ void SyntaxHighlighter::mark(int start, int length, const char *color, bool bold
 }
 void SyntaxHighlighter::highlightBlock(const QString &text) {
     setCurrentBlockState(0);
+    if (largeFileMode()) return;
     if (mode.isEmpty()) return;
     // Similar to VS Code's long-line tokenization limit: avoid blocking typing
     // on minified/generated data. Carry any open multiline delimiter so later

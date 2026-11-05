@@ -110,6 +110,15 @@ int main(int argc, char **argv) {
         app.processEvents();
         check(colorAt(2, 0) == "#718774", "long line preserves multiline comment state");
         check(colorAt(4, 0) == "#794baa", "highlighting resumes after multiline comment closes");
+        editor.setPlainText(QString("return 1;" + QString(10000, ' ' ) + "\n").repeated(2100));
+        app.processEvents();
+        check(editor.largeFileMode() && colorAt(0, 0).isEmpty(), "large documents pause token formatting");
+        editor.setPlainText("return 1;"); app.processEvents();
+        check(!editor.largeFileMode() && colorAt(0, 0) == "#794baa", "shrinking document restores highlighting");
+        editor.setPlainText(QString("x\n").repeated(100001)); app.processEvents();
+        check(editor.largeFileMode(), "large line counts also activate the mode");
+        editor.setPlainText("return 1;"); app.processEvents();
+        check(!editor.largeFileMode() && colorAt(0, 0) == "#794baa", "line-count downgrade also restores normal formatting");
         editor.setFilePath("example.txt");
         app.processEvents();
         check(colorAt(0, 1).isEmpty(), "plain text clears previous highlighting");

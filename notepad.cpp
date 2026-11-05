@@ -2001,6 +2001,8 @@ void Notepad::updateStatus() {
             .arg(cursor.blockNumber() + 1)
             .arg(cursor.positionInBlock() + 1)
             .arg(qMax(0, editor->document()->characterCount() - 1)));
+    if (static_cast<CodeEditor *>(editor)->largeFileMode())
+        positionLabel->setText(positionLabel->text() + tr("   ·   大文件模式：语法高亮暂停"));
 }
 
 void Notepad::selectFont() {

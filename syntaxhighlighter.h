@@ -8,6 +8,7 @@ class SyntaxHighlighter : public QSyntaxHighlighter {
     explicit SyntaxHighlighter(QTextDocument *document);
     void setColorTheme(const QString &name) { darkTheme = name != "light"; githubTheme = name == "github-dark-default"; formats.clear(); rehighlight(); }
     void setFilePath(const QString &path);
+    bool largeFileMode() const;
   protected:
     void highlightBlock(const QString &text) override;
   private:
@@ -17,4 +18,5 @@ class SyntaxHighlighter : public QSyntaxHighlighter {
     QString mode;
     QSet<QString> keywords;
     QHash<QString, QTextCharFormat> formats;
+    bool lastLargeMode = false;
 };

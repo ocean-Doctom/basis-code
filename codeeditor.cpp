@@ -90,6 +90,7 @@ void CodeEditor::paintLineNumbers(QPaintEvent *event) {
 void CodeEditor::setFilePath(const QString &path) {
     highlighter->setFilePath(path);
 }
+bool CodeEditor::largeFileMode() const { return highlighter->largeFileMode(); }
 
 void CodeEditor::setDarkTheme(bool dark) {
     setColorTheme(dark ? "tokyo-night" : "light");
