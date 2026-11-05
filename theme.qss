@@ -1,0 +1,59 @@
+QMainWindow, QWidget#mainArea { background: #ffffff; color: #292e38; }
+QFrame#activityRail { background: #f0f1f4; border-right: 1px solid #dfe2e8; }
+QFrame#activityRail QToolButton { border-radius: 6px; padding: 0; background: transparent; }
+QFrame#activityRail QToolButton:hover { background: #e1e5ec; }
+QFrame#activityRail QToolButton:checked { background: #dce5f3; border-left: 2px solid #517bbd; }
+QFrame#sidebar { background: #f8f9fb; border-right: 1px solid #e5e7ed; }
+QLabel#projectName { color: #444c5b; font-size: 10pt; font-weight: 600; padding: 8px 6px; }
+QLabel#sideFooter { color: #a2a7b2; font-size: 9pt; padding: 8px 6px; }
+QTreeView#projectTree {
+    background: transparent; color: #525b6c; border: none; outline: none;
+    selection-background-color: #e1e9f5; selection-color: #344e79;
+}
+QTreeView#projectTree::item { height: 29px; border-radius: 4px; padding-left: 2px; }
+QTreeView#projectTree::item:hover { background: #edf0f5; }
+QTreeView#projectTree::item:selected { background: #e1e9f5; color: #344e79; }
+QFrame#windowTitleBar { background: #ffffff; border-bottom: 1px solid #e4e8ef; }
+QFrame#windowTitleBar QToolButton#windowMinimize,
+QFrame#windowTitleBar QToolButton#windowMaximize,
+QFrame#windowTitleBar QToolButton#windowClose { background: transparent; border: none; border-radius: 0; padding: 0; }
+QFrame#windowTitleBar QToolButton#windowMinimize:hover,
+QFrame#windowTitleBar QToolButton#windowMaximize:hover { background: #edf0f5; }
+QFrame#windowTitleBar QToolButton#windowClose:hover { background: #fbdcde; }
+QLabel#workspaceLabel { font-size: 10pt; font-weight: 600; color: #505969; }
+QToolButton { background: transparent; border: none; border-radius: 5px; color: #7b8392; padding: 6px 10px; }
+QToolButton:hover { background: #f0f2f6; color: #303b4d; }
+QToolButton:pressed, QToolButton:checked { background: #e5eaf2; }
+QToolButton::menu-indicator { image: none; width: 0; }
+QToolButton#saveButton { background: #edf1f7; color: #4b6080; padding: 7px 16px; border-radius: 5px; }
+QToolButton#saveButton:hover { background: #dfe7f3; }
+QToolButton#addTabButton { font-size: 14pt; margin: 4px 10px; padding: 0px 9px; }
+QTabWidget#documentTabs::pane { border: none; border-top: 1px solid #e8ebf1; background: #ffffff; }
+QTabWidget#documentTabs > QTabBar { background: #f6f7fa; }
+QTabBar::tab {
+    background: transparent; color: #8e96a4; border: 1px solid transparent;
+    border-bottom: none; padding: 10px 14px; margin: 4px 1px 0 1px;
+    min-width: 88px; max-width: 200px; border-top-left-radius: 5px; border-top-right-radius: 5px;
+}
+QTabBar::tab:first { margin-left: 0; }
+QTabWidget#documentTabs::tab-bar { left: 0; alignment: left; }
+QTabBar::tab:selected { background: #ffffff; color: #3a475e; border-color: #e8ebf1; }
+QTabBar::tab:!selected:hover { background: #ebeff5; color: #4d5c72; }
+QTabBar::close-button { image: url(:/close.svg); subcontrol-position: right; width: 12px; height: 12px; border-radius: 3px; }
+QTabBar::close-button:hover { background: #dce3ee; }
+QPlainTextEdit { background: #ffffff; color: #3a4251; border: none; selection-background-color: #dae7fa; selection-color: #23354f; }
+QStatusBar { background: #fafbfd; color: #939caa; border-top: 1px solid #e9ecf2; padding: 5px 14px; }
+QStatusBar::item { border: none; }
+QStatusBar QLabel { font-size: 9pt; color: #929aaa; }
+QMenu { background: #ffffff; border: 1px solid #e0e5ee; padding: 5px; border-radius: 6px; color: #434d5f; }
+QMenu::item { padding: 8px 28px 8px 14px; border-radius: 4px; }
+QMenu::item:selected { background: #eaf0f9; }
+QMenu::item:disabled { color: #b9bfca; }
+QMenu::separator { height: 1px; background: #e9edf3; margin: 5px; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical { background: #d7dce5; border-radius: 3px; min-height: 28px; }
+QScrollBar::handle:vertical:hover { background: #b8c2d1; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QSplitter::handle:horizontal { width: 1px; background: #e6e9f0; }
+QSplitter::handle:horizontal:hover { background: #a9bbd7; }
