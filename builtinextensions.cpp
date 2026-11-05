@@ -14,6 +14,8 @@
 #include <QScrollBar>
 #include <QUrl>
 #include <QDesktopServices>
+#include <QStringConverter>
+#include <memory>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
@@ -88,13 +90,37 @@ QWidget *createBuiltinExtension(const QString &name, QPlainTextEdit *source,
         auto *timeout = new QTimer(page); timeout->setSingleShot(true); timeout->setInterval(15000);
         QObject::connect(timeout, &QTimer::timeout, process, [process, status] { status->setText(QObject::tr("Git 命令超时。")); process->kill(); });
         process->setWorkingDirectory(project.isEmpty() ? QFileInfo(path).absolutePath() : project);
+        auto stdoutDecoder = std::make_shared<QStringDecoder>(QStringDecoder::Utf8);
+        auto stderrDecoder = std::make_shared<QStringDecoder>(QStringDecoder::Utf8);
+        auto appendOutput = [process, output](const QByteArray &bytes, QStringDecoder &decoder) {
+            const int used = process->property("displayedBytes").toInt();
+            const int available = qMax(0, 1024 * 1024 - used);
+            if (!available) {
+                if (!process->property("outputTruncated").toBool() && !bytes.isEmpty()) {
+                    process->setProperty("outputTruncated", true);
+                    auto cursor = output->textCursor(); cursor.movePosition(QTextCursor::End);
+                    cursor.insertText(QObject::tr("\n[输出超过 1 MiB，已截断]\n"));
+                }
+                return;
+            }
+            process->setProperty("displayedBytes", used + qMin(available, int(bytes.size())));
+            auto cursor = output->textCursor(); cursor.movePosition(QTextCursor::End);
+            cursor.insertText(decoder(bytes.left(available)));
+            if (bytes.size() > available) {
+                process->setProperty("outputTruncated", true);
+                cursor.insertText(QObject::tr("\n[输出超过 1 MiB，已截断]\n"));
+            }
+        };
         QObject::connect(refresh, &QPushButton::clicked, page, [=] {
             refresh->setEnabled(false); output->clear(); status->setText(QObject::tr("正在读取 Git…"));
             process->setProperty("stage", 0);
+            process->setProperty("displayedBytes", 0);
+            process->setProperty("outputTruncated", false);
+            stdoutDecoder->resetState(); stderrDecoder->resetState();
             process->start("git", {"--no-optional-locks", "status", "--short"}); timeout->start();
         });
-        QObject::connect(process, &QProcess::readyReadStandardOutput, output, [=] { output->insertPlainText(QString::fromUtf8(process->readAllStandardOutput())); });
-        QObject::connect(process, &QProcess::readyReadStandardError, output, [=] { output->insertPlainText(QString::fromUtf8(process->readAllStandardError())); });
+        QObject::connect(process, &QProcess::readyReadStandardOutput, output, [=] { appendOutput(process->readAllStandardOutput(), *stdoutDecoder); });
+        QObject::connect(process, &QProcess::readyReadStandardError, output, [=] { appendOutput(process->readAllStandardError(), *stderrDecoder); });
         QObject::connect(process, &QProcess::errorOccurred, page, [=](QProcess::ProcessError error) {
             if (error == QProcess::FailedToStart) { timeout->stop(); refresh->setEnabled(true); status->setText(QObject::tr("无法启动 Git，请先安装 Git 并加入 PATH。")); }
         });

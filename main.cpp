@@ -5,6 +5,7 @@
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName("Basis Code");
+    QApplication::setApplicationVersion(BASIS_CODE_VERSION);
     Notepad window;
     window.show();
     if (app.arguments().size() > 1) {

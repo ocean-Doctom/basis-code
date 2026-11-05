@@ -814,6 +814,26 @@ ChatGptPage::ChatGptPage(QWidget *parent, const QString &provider) : QWidget(par
     auto *logout = new QPushButton(state->deepSeek() ? tr("移除本机密钥") : tr("退出账号"), accountPanel);
     logout->setObjectName("agentLogout");
     accountLayout->addWidget(logout);
+    auto *diagnose = new QPushButton(tr("检查服务连接"), accountPanel);
+    diagnose->setObjectName("agentCheckConnection");
+    accountLayout->addWidget(diagnose);
+    connect(diagnose, &QPushButton::clicked, this, [this] {
+        state->busy(true);
+        state->status->setText(tr("正在检查服务连接（不发送密钥或聊天内容）…"));
+        const QUrl url(state->deepSeek() ? "https://api.deepseek.com/models" :
+                       "https://auth.openai.com/.well-known/openid-configuration");
+        QNetworkRequest request(url); request.setTransferTimeout(15000);
+        auto *reply = state->network.get(request);
+        connect(reply, &QNetworkReply::finished, this, [this, reply] {
+            const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            state->busy(false);
+            if (code == 200 || (state->deepSeek() && code == 401))
+                state->status->setText(tr("服务连接正常（HTTP %1）。此检查未验证账号登录或模型使用权限。").arg(code));
+            else state->status->setText(tr("%1 连接检查失败：HTTP %2，Qt 网络错误 %3（%4）。请检查系统代理或服务访问限制。")
+                .arg(reply->url().host()).arg(code).arg(int(reply->error())).arg(reply->errorString()));
+            reply->deleteLater();
+        });
+    });
     // AI agent controls (DeepSeek only).
     if (state->deepSeek()) {
         auto *agentSep = new QFrame(accountPanel);

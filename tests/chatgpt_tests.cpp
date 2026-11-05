@@ -1,6 +1,7 @@
 #include "../chatgptpage.cpp"
 #include <QApplication>
 #include <QTemporaryDir>
+#include <QElapsedTimer>
 #include <iostream>
 #include <stdexcept>
 
@@ -9,6 +10,16 @@ static void require(bool condition, const char *message) {
 }
 
 struct ChatPageTestAccess {
+    static void verifyConnection(ChatGptPage &page) {
+        page.findChild<QPushButton *>("agentCheckConnection")->click();
+        QElapsedTimer wait; wait.start();
+        while (!page.state->login->isEnabled() && wait.elapsed() < 20000) {
+            QApplication::processEvents(); QThread::msleep(5);
+        }
+        const QString result = page.state->status->text();
+        std::cout << "Public service connection check: " << result.toUtf8().constData() << '\n';
+        require(result.contains(QString::fromUtf8("服务连接正常")), "native Qt service connection succeeds");
+    }
     static void verifyDeepSeek(ChatGptPage &page) {
         auto &state = *page.state;
         require(state.directory.endsWith("/basis.deepseek"), "provider credentials are isolated");
@@ -37,6 +48,20 @@ struct ChatPageTestAccess {
         require(state.account()["access_token"].toString().isEmpty(), "remove key clears local credential");
         state.records = {}; state.loadRecords();
         require(state.account()["access_token"].toString().isEmpty(), "removed key stays removed");
+        bool finished = false;
+        int ticks = 0;
+        QTimer heartbeat;
+        QObject::connect(&heartbeat, &QTimer::timeout, &page, [&] { ++ticks; });
+        heartbeat.start(10);
+        state.runToolJob([uiThread = page.thread()](AgentTools &) {
+            const bool worker = QThread::currentThread() != uiThread;
+            QThread::msleep(120);
+            return QJsonObject{{"worker", worker}};
+        }, [&](const QJsonObject &result) { require(result["worker"].toBool(), "tools execute off UI thread"); finished = true; });
+        QElapsedTimer wait; wait.start();
+        while (!finished && wait.elapsed() < 3000) { QApplication::processEvents(); QThread::msleep(2); }
+        require(finished && ticks > 2, "UI heartbeat stays responsive during tools");
+        heartbeat.stop();
     }
 };
 
@@ -111,6 +136,7 @@ int main(int argc, char **argv) {
         require(!deepseek.findChild<QPushButton *>("chatgptSend")->isEnabled(), "DeepSeek requires key before inference");
         ChatPageTestAccess::verifyDeepSeek(deepseek);
         ChatGptPage page;
+        if (app.arguments().contains("--network-check")) ChatPageTestAccess::verifyConnection(page);
         require(page.findChild<QScrollArea *>("chatgptMessages"), "native chat message area");
         require(page.findChild<QPlainTextEdit *>("chatgptInput"), "native chat input");
         require(!page.findChild<QPushButton *>("chatgptSend")->isEnabled(), "no unauthenticated inference");

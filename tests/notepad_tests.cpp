@@ -84,7 +84,7 @@ int main(int argc, char *argv[]) {
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
     if (!app.arguments().contains("--webview-smoke")) qputenv("BASIS_DISABLE_WEBVIEW", "1");
-    QTimer::singleShot(20000, [] {
+    QTimer::singleShot(app.arguments().contains("--benchmark") ? 60000 : 20000, [] {
         std::cerr << "Timeout\n";
         std::exit(2);
     });
@@ -604,6 +604,43 @@ int main(int argc, char *argv[]) {
             preview.findChild<QAction *>("actionLightTheme")->trigger();
             app.processEvents();
             check(preview.grab().save(prefix + "-light.png"), "render light preview");
+        }
+        {
+            Notepad pluginWindow;
+            check(pluginWindow.openProject(temporary.path()), "open plugin test project");
+            const QString a = temporary.filePath("format-a.json"), b = temporary.filePath("format-b.json");
+            writeText(a, "{\"a\":1}"); writeText(b, "{\"b\":2}");
+            check(pluginWindow.loadFile(a), "open first JSON source");
+            auto *pluginTabs = pluginWindow.findChild<QTabWidget *>("documentTabs");
+            auto *first = qobject_cast<QPlainTextEdit *>(pluginTabs->currentWidget());
+            auto *catalog = pluginWindow.findChild<QListWidget *>("extensionList");
+            auto *json = catalog->findItems("JSON Tools", Qt::MatchExactly).first();
+            catalog->itemClicked(json);
+            QWidget *firstPlugin = pluginTabs->currentWidget();
+            check(pluginWindow.loadFile(b), "open second JSON source");
+            auto *second = qobject_cast<QPlainTextEdit *>(pluginTabs->currentWidget());
+            catalog->itemClicked(json);
+            check(pluginTabs->currentWidget() != firstPlugin, "format extensions bind independently to documents");
+            pluginTabs->currentWidget()->findChild<QPushButton *>("applyDocumentFormat")->click();
+            check(second->toPlainText().contains("    \"b\": 2") && first->toPlainText() == "{\"a\":1}", "formatter updates selected source only");
+            second->undo();
+        }
+        if (app.arguments().contains("--benchmark")) {
+            const QString large = temporary.filePath("large-benchmark.cpp");
+            const QByteArray lines = QByteArray("int value = 123; // benchmark line\n").repeated(10000);
+            writeText(large, lines);
+            Notepad bench;
+            QElapsedTimer elapsed; elapsed.start();
+            check(bench.loadFile(large), "load performance fixture");
+            app.processEvents();
+            const qint64 load = elapsed.elapsed();
+            auto *code = qobject_cast<QPlainTextEdit *>(bench.findChild<QTabWidget *>("documentTabs")->currentWidget());
+            elapsed.restart();
+            for (int i = 0; i < 1000; ++i) {
+                auto cursor = code->textCursor(); cursor.setPosition((i * 307) % lines.size()); code->setTextCursor(cursor);
+            }
+            std::cout << "BENCHMARK bytes=" << lines.size() << " lines=10000 load_ms=" << load
+                      << " cursor_moves=1000 cursor_ms=" << elapsed.elapsed() << '\n';
         }
         std::cout << "Passed " << checks << " checks\n";
         return 0;

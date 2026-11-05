@@ -1,5 +1,18 @@
 # Development record · 1.1.0
 
+## 1.2.0 follow-up
+
+- Added cancellable background Project Search to the extension catalog and folder context menu. It skips dependency/build/VCS directories and linked paths, searches names/content, reports scan limits and navigates to matching lines. Worker results are ignored after cancellation, edits or page closure.
+- Added actual temporary Git repository diff tests and UI-heartbeat verification while tools run on a worker.
+- Preserved multiline comment state when skipping unusually long lines; added regression coverage.
+- Fixed native formatter/preview pages being reused across different source documents.
+- Limited displayed Git output to 1 MiB, keeping incremental UTF-8 decoding for split Chinese output.
+- Added an unauthenticated service-connectivity check in the chat account menu. Native Qt HTTPS successfully received HTTP 200 from OpenAI's public login metadata endpoint on this machine; full account authorization remains unverified.
+- Centralized application and installer versions in APP_VERSION.txt (avoids shadowing the C++ `<version>` header on Windows).
+- All five test groups passed after these changes; actual Git and search operations use temporary fixtures, not personal repositories.
+- Optional `NotepadTests.exe --benchmark` keeps a reproducible 350,000-byte/10,000-line C++ fixture. One native Windows run measured 154 ms load and 363 ms for 1,000 cursor moves; these are local measurements, not a cross-hardware guarantee or before/after speedup claim.
+- Highlight formats are cached per highlighter and invalidated when changing themes, avoiding repeated color parsing and format allocation for every token.
+
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
 ## Verified changes

@@ -106,6 +106,10 @@ int main(int argc, char **argv) {
         check(colorAt(0, 0) == "#ff7b72" && colorAt(0, 7) == "#79c0ff",
               "GitHub Dark Default token colors applied");
         editor.setColorTheme("light");
+        editor.setPlainText("/*\n" + QString(21000, 'x') + "\nstill a comment\n*/\nreturn 1;");
+        app.processEvents();
+        check(colorAt(2, 0) == "#718774", "long line preserves multiline comment state");
+        check(colorAt(4, 0) == "#794baa", "highlighting resumes after multiline comment closes");
         editor.setFilePath("example.txt");
         app.processEvents();
         check(colorAt(0, 1).isEmpty(), "plain text clears previous highlighting");

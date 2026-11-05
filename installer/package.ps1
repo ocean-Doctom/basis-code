@@ -8,6 +8,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot
+$version = (Get-Content -LiteralPath "$project\APP_VERSION.txt" -Raw).Trim()
+if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'APP_VERSION.txt must contain a numeric major.minor.patch version' }
 $build = Join-Path $project 'build\release-package'
 $env:PATH = "$QtRoot\bin;$CompilerRoot\bin;$env:PATH"
 & $CMake -S $project -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF "-DCMAKE_CXX_COMPILER=$CompilerRoot/bin/g++.exe" "-DCMAKE_MAKE_PROGRAM=$Ninja" "-DCMAKE_PREFIX_PATH=$QtRoot"
@@ -22,7 +24,7 @@ Copy-Item -LiteralPath "$build\QtApp.exe" -Destination "$payload\BasisCode.exe"
 Copy-Item "$project\LICENSE" "$payload\LICENSE"
 Copy-Item "$project\NOTICE" "$payload\NOTICE"
 $sourceCommit = git -C $project rev-parse HEAD
-@{ version = '1.1.0'; sourceCommit = $sourceCommit; repository = 'https://github.com/ocean-Doctom/basis-code' } | ConvertTo-Json | Set-Content "$payload\release.json" -Encoding utf8
+@{ version = $version; sourceCommit = $sourceCommit; repository = 'https://github.com/ocean-Doctom/basis-code' } | ConvertTo-Json | Set-Content "$payload\release.json" -Encoding utf8
 Get-ChildItem $build -Filter '*.dll' -File | Copy-Item -Destination $payload
 foreach ($folder in @('platforms','styles','imageformats','iconengines','generic','networkinformation','tls')) {
     if (Test-Path "$build\$folder") { Copy-Item -LiteralPath "$build\$folder" -Destination $payload -Recurse }
@@ -40,8 +42,8 @@ $lines += @(Get-ChildItem $payload -Recurse -Directory | Sort-Object { $_.FullNa
     'RMDir "$INSTDIR\' + $_.FullName.Substring($payload.Length + 1) + '"'
 })
 $lines | Set-Content -LiteralPath "$stage\uninstall-files.nsh" -Encoding utf8
-& $MakeNsis "/DPAYLOAD=$payload" "/DOUTPUT=$OutputDirectory" "$PSScriptRoot\setup.nsi"
+& $MakeNsis "/DAPP_VERSION=$version" "/DPAYLOAD=$payload" "/DOUTPUT=$OutputDirectory" "$PSScriptRoot\setup.nsi"
 if ($LASTEXITCODE) { throw 'Installer compilation failed' }
-$installer = Join-Path $OutputDirectory 'BasisCode-Setup-1.1.0-x64.exe'
+$installer = Join-Path $OutputDirectory "BasisCode-Setup-$version-x64.exe"
 (Get-FileHash $installer -Algorithm SHA256).Hash + '  ' + (Split-Path $installer -Leaf) | Set-Content "$installer.sha256" -Encoding ascii
 Write-Output "Installer: $installer"

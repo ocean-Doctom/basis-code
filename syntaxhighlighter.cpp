@@ -36,6 +36,9 @@ void SyntaxHighlighter::setFilePath(const QString &path) {
     rehighlight();
 }
 void SyntaxHighlighter::mark(int start, int length, const char *color, bool bold) {
+    const QString key = QString::fromLatin1(color) + (bold ? QLatin1Char('b') : QLatin1Char('n'));
+    auto cached = formats.constFind(key);
+    if (cached != formats.cend()) { setFormat(start, length, cached.value()); return; }
     QTextCharFormat format;
     QString value = QString::fromLatin1(color);
     if (githubTheme) {
@@ -49,14 +52,24 @@ void SyntaxHighlighter::mark(int start, int length, const char *color, bool bold
     }
     format.setForeground(QColor(value));
     if (bold) format.setFontWeight(QFont::DemiBold);
+    formats.insert(key, format);
     setFormat(start, length, format);
 }
 void SyntaxHighlighter::highlightBlock(const QString &text) {
     setCurrentBlockState(0);
     if (mode.isEmpty()) return;
     // Similar to VS Code's long-line tokenization limit: avoid blocking typing
-    // on minified/generated data. State 0 resumes normal parsing on later lines.
-    if (text.size() > 20000) return;
+    // on minified/generated data. Carry any open multiline delimiter so later
+    // short lines do not accidentally become code inside a comment/string.
+    if (text.size() > 20000) {
+        const auto *previous = dynamic_cast<DelimiterData *>(currentBlock().previous().userData());
+        if (previousBlockState() > 0 && previous && !text.contains(previous->ending)) {
+            setCurrentBlockState(previousBlockState());
+            auto *data = new DelimiterData; data->ending = previous->ending;
+            setCurrentBlockUserData(data);
+        }
+        return;
+    }
     const auto apply = [&](const QString &pattern, const char *color, bool bold = false) {
         static thread_local QHash<QString, QRegularExpression> expressions;
         if (!expressions.contains(pattern)) expressions.insert(pattern, QRegularExpression(pattern));

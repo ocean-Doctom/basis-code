@@ -1,10 +1,12 @@
 #pragma once
 #include <QSyntaxHighlighter>
 #include <QSet>
+#include <QHash>
+#include <QTextCharFormat>
 class SyntaxHighlighter : public QSyntaxHighlighter {
   public:
     explicit SyntaxHighlighter(QTextDocument *document);
-    void setColorTheme(const QString &name) { darkTheme = name != "light"; githubTheme = name == "github-dark-default"; rehighlight(); }
+    void setColorTheme(const QString &name) { darkTheme = name != "light"; githubTheme = name == "github-dark-default"; formats.clear(); rehighlight(); }
     void setFilePath(const QString &path);
   protected:
     void highlightBlock(const QString &text) override;
@@ -14,4 +16,5 @@ class SyntaxHighlighter : public QSyntaxHighlighter {
     bool githubTheme = false;
     QString mode;
     QSet<QString> keywords;
+    QHash<QString, QTextCharFormat> formats;
 };

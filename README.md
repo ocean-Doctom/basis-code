@@ -2,6 +2,8 @@
 
 源码仓库：https://github.com/ocean-Doctom/basis-code · 许可证：[Apache-2.0](LICENSE)。第三方依赖保留各自许可证。
 
+1.2.0 增加可取消的 Project Search 后台项目搜索、聊天服务连接检查，修复多文档插件绑定与超长行注释状态，限制 Git 输出内存。应用和安装包版本统一读取 APP_VERSION.txt。
+
 1.1.0 增加可用的 Markdown Preview、JSON Tools、Whitespace Cleaner、Git Changes 原生扩展。在扩展列表点击打开；格式化作用于打开扩展时绑定的文档，可撤销。它们提供常见编辑器扩展能力，不支持直接安装 VS Code VSIX。完整开发、性能和验证记录见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 使用 C++17 和 Qt 6 Widgets 的轻量代码编辑器：最左侧图标栏、左侧项目文件树、右侧多选项卡代码区。
@@ -12,8 +14,8 @@
 
 实际项目目录是 `C:\Users\26320\.vscode\projects\Qt app`。请在这个目录阅读和修改代码。同名的 `Documents\ChatGPT\Qt app` 是另一个项目目录。
 
-- **学习方式**　用户从零学习 C++ 和 Qt Widgets。“一次一个小步骤”指一次发送的需求整体完成，不要把同一条消息的多项要求拆到多个回合。结合当前代码解释原理。Git 提交由用户自己执行。
-- **最近验证**　当前构建通过；4 组默认 CTest 全部通过，Windows 原生窗口集成检查通过 145 项，已检查默认 Agent 选择、DeepSeek、语言配置和 GitHub Dark Default 的窗口截图。DeepSeek 流式分片与 DPAPI 密钥恢复/移除使用本地测试数据验证，未使用真实 Key 或付费调用。用户要求暂停下载并亲自试用，已经中止在线下载测试。Python 官方包下载解压已验证，本机 Python 运行及 PDB 单步、变量、继续已验证；Java 版本查询已验证，完整 JDK 下载和实际 JDB 会话待用户试用。LanguageTests.exe --local-python 只用 BASIS_TEST_PYTHON 指定的本机解释器；仅显式传 --download 才执行下载安装测试。
+- **学习方式**　用户从零学习 C++ 和 Qt Widgets。“一次一个小步骤”指一次发送的需求整体完成，不要把同一条消息的多项要求拆到多个回合。结合当前代码解释原理。本轮已获用户授权提交和发布 GitHub，仓库 ocean-Doctom/basis-code，许可证 Apache-2.0；按已验证的提交生成安装包。
+- **最近验证**　当前构建和 5 组 CTest 通过。新增临时真实 Git 仓库差异、后台工具 UI 心跳、JSON 多文档绑定、Markdown 刷新、后台搜索和超长行注释状态测试。原生 Qt 登录元数据 HTTPS 检查返回 HTTP 200，未代用户完成 OAuth 登录或付费推理。工具链下载继续保持用户选择，仅显式传 LanguageTests.exe --download 才执行下载安装测试。最新验证细节见 DEVELOPMENT.md。
 - **最新界面**　ChatGPT 现在是 Qt 原生消息区、模型选择和输入框，通过官方 Sign in with ChatGPT 动态客户端 PKCE 流程登录。授权在系统浏览器进行，回调为本机 127.0.0.1 的 /auth/callback。验证 ID token 的 RS256/JWKS、issuer、audience、nonce 和账号身份后，使用公开 Responses API 流式聊天；账号需要具备对应计划使用授权。凭据保存在 extensions/basis.chatgpt/credentials.bin，使用 Windows DPAPI 用户级加密和跨窗口文件锁，支持刷新、账号切换和撤销退出。开发者未代用户完成登录或发消息，这部分需用户实测。旧 WebView2 网页依赖不再参与构建。
 - **DeepSeek 与默认 Agent**　首次启动在代码区选择 ChatGPT 或 DeepSeek，选择后持久化；文件→首选项或左下角设置可更改默认 Agent。DeepSeek 使用官方 API，首次从账户菜单配置 API Key，通过 /models 动态获取模型、/chat/completions 流式回复。密钥与聊天历史独立保存到 extensions/basis.deepseek/credentials.bin，使用 Windows DPAPI 加密；可切换密钥、移除本机密钥。已用本地数据验证分片 SSE、密钥加密恢复和移除，未使用真实 API Key 或付费推理，需用户实测。
 - **项目管理**　资源管理器项目名称前的箭头返回历史列表；侧栏不再单独显示打开文件夹按钮，文件菜单仍可打开文件夹。单击项目后打开，双击修改独立显示名称，右键可修改实际文件夹名；重命名会同步打开文件路径并保留未保存内容。文件菜单参照 VS Code 分组，含最近文件、工作区保存/打开、文件夹切换、全部保存、自动保存、还原和关闭文件夹。工作区使用 .code-workspace JSON，多个根通过左侧文件夹列表切换。
@@ -68,7 +70,7 @@
 .\installer\package.ps1 -MakeNsis 'C:\path\nsis\makensis.exe'
 ```
 
-默认输出 `build/installers/BasisCode-Setup-1.0.0-x64.exe` 和 SHA-256 校验文件。安装包只收集主程序、Qt/MinGW 运行库和插件、第三方声明；不包含测试程序、API Key、聊天记录、项目或语言编译器。当前用户安装，无需管理员权限，带桌面/开始菜单快捷方式和卸载入口；卸载逐项删除发布文件，保留个人数据。发布前请在另一台 Windows x64 电脑上试装。当前安装包未进行代码签名。
+默认输出 `build/installers/BasisCode-Setup-<VERSION>-x64.exe` 和 SHA-256 校验文件。安装包只收集主程序、Qt/MinGW 运行库和插件、第三方声明；不包含测试程序、API Key、聊天记录、项目或语言编译器。当前用户安装，无需管理员权限，带桌面/开始菜单快捷方式和卸载入口；卸载逐项删除发布文件，保留个人数据。发布前请在另一台 Windows x64 电脑上试装。当前安装包未进行代码签名。
 
 ### 开发构建
 

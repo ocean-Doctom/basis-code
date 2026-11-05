@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(QtApp LANGUAGES CXX)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/APP_VERSION.txt" BASIS_CODE_VERSION LIMIT_COUNT 1)
+project(QtApp VERSION "${BASIS_CODE_VERSION}" LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,12 +20,14 @@ add_executable(QtApp WIN32
     chatgptpage.cpp chatgptpage.h
     agenttools.cpp agenttools.h
     builtinextensions.cpp builtinextensions.h
+    projectsearch.cpp projectsearch.h
     syntaxhighlighter.cpp syntaxhighlighter.h
     codeeditor.cpp codeeditor.h
     windowtitlebar.cpp windowtitlebar.h
 )
 
 target_link_libraries(QtApp PRIVATE Qt6::Widgets Qt6::PrintSupport Qt6::Network)
+target_compile_definitions(QtApp PRIVATE BASIS_CODE_VERSION="${PROJECT_VERSION}")
 set(WORKSPACE_ASSETS icons/deepseek-original.ico icons/language-chatgpt.svg icons/language-cpp.svg icons/language-java.svg icons/language-python.svg icons/dropdown.svg icons/dropdown-light.svg icons/run.svg theme.qss theme-dark.qss theme-github-dark.qss close.svg icons/files.svg icons/extensions.svg
     icons/minimize.svg icons/maximize.svg icons/restore.svg icons/settings.svg icons/basis-code.ico icons/terminal.svg)
 qt_add_resources(QtApp workspace_assets PREFIX "/" FILES ${WORKSPACE_ASSETS})
@@ -51,7 +54,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    add_executable(ExtensionTests tests/extensions_tests.cpp builtinextensions.cpp agenttools.cpp)
+    add_executable(ExtensionTests tests/extensions_tests.cpp projectsearch.cpp builtinextensions.cpp agenttools.cpp)
     target_include_directories(ExtensionTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(ExtensionTests PRIVATE Qt6::Widgets Qt6::Network)
     add_dependencies(ExtensionTests QtApp)
@@ -83,7 +86,7 @@ if(BUILD_TESTING)
     add_test(NAME codeeditor_line_numbers COMMAND CodeEditorTests)
     set_tests_properties(codeeditor_line_numbers PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
-    add_executable(NotepadTests ${DEVTOOLS_MOC} tests/notepad_tests.cpp builtinextensions.cpp terminalpane.cpp chatgptpage.cpp agenttools.cpp agenttools.h syntaxhighlighter.cpp devtools.cpp devtools.h notepad.cpp notepad.h codeeditor.cpp codeeditor.h windowtitlebar.cpp windowtitlebar.h)
+    add_executable(NotepadTests ${DEVTOOLS_MOC} tests/notepad_tests.cpp projectsearch.cpp builtinextensions.cpp terminalpane.cpp chatgptpage.cpp agenttools.cpp agenttools.h syntaxhighlighter.cpp devtools.cpp devtools.h notepad.cpp notepad.h codeeditor.cpp codeeditor.h windowtitlebar.cpp windowtitlebar.h)
     target_include_directories(NotepadTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(NotepadTests PRIVATE Qt6::Widgets Qt6::PrintSupport Qt6::Network)
     qt_add_resources(NotepadTests test_workspace_assets PREFIX "/" FILES ${WORKSPACE_ASSETS})

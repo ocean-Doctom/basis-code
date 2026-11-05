@@ -3,6 +3,7 @@
 #include "chatgptpage.h"
 #include "devtools.h"
 #include "builtinextensions.h"
+#include "projectsearch.h"
 #include <QPushButton>
 #include <QActionGroup>
 #include <QCryptographicHash>
@@ -14,6 +15,7 @@
 #include <QDesktopServices>
 #include <QClipboard>
 #include <QUrl>
+#include <QUuid>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QPainter>
@@ -62,6 +64,7 @@
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTextDocument>
+#include <QTextBlock>
 #include <QPlainTextEdit>
 #include <QTextStream>
 #include <QToolButton>
@@ -671,6 +674,7 @@ void Notepad::createExtensionsPage() {
     addToolkit("java", "JSON Tools", tr("JSON 校验和格式化，支持撤销。"));
     addToolkit("python", "Whitespace Cleaner", tr("清理行尾空白与多余尾行。"));
     addToolkit("cpp", "Git Changes", tr("异步查看工作区 Git 状态和差异。"));
+    addToolkit("cpp", "Project Search", tr("可取消的后台项目搜索，匹配文件名和内容。"));
     layout->addWidget(list);
     connect(search, &QLineEdit::textChanged, list, [list](const QString &text) {
         for (int row = 0; row < list->count(); ++row) {
@@ -980,19 +984,32 @@ void Notepad::closePreview() {
 
 void Notepad::openToolkit(const QString &name, const QString &summary) {
     if (name == "ChatGPT" || name == "DeepSeek") { openAgent(name.toLower()); return; }
+    if (name == "Project Search") { searchInFolder(projectRoot); return; }
+    const bool builtin = QStringList{"Markdown Preview", "JSON Tools", "Whitespace Cleaner", "Git Changes"}.contains(name);
+    auto *source = editor;
+    if (builtin && !source) for (int i = tabs->count() - 1; i >= 0; --i) {
+        if (auto *candidate = qobject_cast<QPlainTextEdit *>(tabs->widget(i))) { source = candidate; break; }
+    }
+    QString identity;
+    if (builtin && source) {
+        identity = source->property("extensionIdentity").toString();
+        if (identity.isEmpty()) {
+            identity = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            source->setProperty("extensionIdentity", identity);
+        }
+    }
+    if (name == "Git Changes") identity = projectRoot;
     for (int i = 0; i < tabs->count(); ++i) {
-        if (tabs->widget(i)->property("toolkitName").toString() == name) {
+        if (tabs->widget(i)->property("toolkitName").toString() == name &&
+            (!builtin || tabs->widget(i)->property("sourceIdentity").toString() == identity)) {
             tabs->setCurrentIndex(i);
             return;
         }
     }
-    if (QStringList{"Markdown Preview", "JSON Tools", "Whitespace Cleaner", "Git Changes"}.contains(name)) {
-        auto *source = editor;
-        if (!source) for (int i = tabs->count() - 1; i >= 0; --i) {
-            if (auto *candidate = qobject_cast<QPlainTextEdit *>(tabs->widget(i))) { source = candidate; break; }
-        }
+    if (builtin) {
         const QString path = source ? source->property("filePath").toString() : QString();
         auto *page = createBuiltinExtension(name, source, path, projectRoot, tabs);
+        page->setProperty("sourceIdentity", identity);
         tabs->setCurrentIndex(tabs->addTab(page, name));
         return;
     }
@@ -1360,56 +1377,19 @@ void Notepad::showTimeline(const QString &path) {
     dialog->open();
 }
 void Notepad::searchInFolder(const QString &folder) {
-    bool accepted = false;
-    const QString keyword = QInputDialog::getText(this, tr("在文件夹中查找"),
-        tr("搜索关键词（匹配文件名或内容）"), QLineEdit::Normal, QString(), &accepted).trimmed();
-    if (!accepted || keyword.isEmpty()) return;
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    QStringList matches;
-    QDirIterator it(folder, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        const QString file = it.next();
-        const QFileInfo info(file);
-        if (info.fileName().contains(keyword, Qt::CaseInsensitive)) {
-            matches.append(file);
-            continue;
-        }
-        if (info.size() > 2 * 1024 * 1024) continue;
-        QFile f(file);
-        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            if (QString::fromUtf8(f.readAll()).contains(keyword, Qt::CaseInsensitive))
-                matches.append(file);
-            f.close();
+    const QString root = QFileInfo(folder).canonicalFilePath();
+    for (int i = 0; i < tabs->count(); ++i) {
+        if (tabs->widget(i)->objectName() == "projectSearchPage" && tabs->widget(i)->property("searchRoot") == root) {
+            tabs->setCurrentIndex(i); return;
         }
     }
-    QApplication::restoreOverrideCursor();
-    if (matches.isEmpty()) {
-        QMessageBox::information(this, tr("在文件夹中查找"), tr("未找到匹配项。"));
-        return;
-    }
-    auto *dialog = new QDialog(this);
-    dialog->setWindowTitle(tr("查找结果 · %1 项").arg(matches.size()));
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->resize(640, 460);
-    auto *layout = new QVBoxLayout(dialog);
-    layout->setContentsMargins(12, 12, 12, 12);
-    auto *list = new QListWidget(dialog);
-    for (const QString &m : matches) {
-        auto *item = new QListWidgetItem(QDir(folder).relativeFilePath(m));
-        item->setData(Qt::UserRole, m);
-        item->setToolTip(QDir::toNativeSeparators(m));
-        list->addItem(item);
-    }
-    layout->addWidget(list, 1);
-    connect(list, &QListWidget::itemDoubleClicked, this, [this, dialog](QListWidgetItem *item) {
-        const QString file = item->data(Qt::UserRole).toString();
-        dialog->accept();
-        loadFile(file);
-    });
-    auto *hint = new QLabel(tr("双击打开文件。"), dialog);
-    hint->setObjectName("toolchainRowDescription");
-    layout->addWidget(hint);
-    dialog->open();
+    auto *page = createProjectSearch(root, {}, [this](const QString &path, int line) {
+        if (!loadFile(path) || !editor || line <= 0) return;
+        QTextCursor cursor(editor->document()->findBlockByNumber(line - 1));
+        if (!cursor.isNull()) { editor->setTextCursor(cursor); editor->centerCursor(); }
+    }, tabs);
+    page->setProperty("searchRoot", root);
+    tabs->setCurrentIndex(tabs->addTab(page, tr("项目搜索")));
 }
 void Notepad::addToChat(const QString &path) {
     const QFileInfo info(path);
@@ -1697,8 +1677,8 @@ void Notepad::createActions() {
     auto *aboutAction = helpMenu->addAction(tr("关于 Basis Code"));
     connect(aboutAction, &QAction::triggered, this, [this] {
         QMessageBox::about(this, tr("关于 Basis Code"),
-                           tr("使用 C++ 和 Qt Widgets 构建的代码编辑器。\n文件以 UTF-8 "
-                              "编码保存。字体设置只影响显示和打印。"));
+                           tr("Basis Code %1\n作者：ocean-Doctom\nApache-2.0 开源许可证\n\n使用 C++ 和 Qt Widgets 构建的代码编辑器。\n文件以 UTF-8 "
+                              "编码保存。字体设置只影响显示和打印。").arg(QApplication::applicationVersion()));
     });
     auto *aboutQtAction = helpMenu->addAction(tr("关于 Qt"));
     connect(aboutQtAction, &QAction::triggered, this,
