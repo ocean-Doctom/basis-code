@@ -227,6 +227,36 @@ int main(int argc, char *argv[]) {
         check(recent && recent->count() == 2 &&
                   !(recent->item(1)->flags() & Qt::ItemIsEnabled),
               "recent projects include usable and unavailable paths");
+        recent->setCurrentRow(0); app.processEvents();
+        const QString recentName = recent->item(0)->text();
+        const auto beforeUnderlyingText = recent->viewport()->grab().toImage();
+        recent->item(0)->setText("DEFAULT_TEXT_MUST_NOT_BE_PAINTED"); app.processEvents();
+        check(recent->viewport()->grab().toImage() == beforeUnderlyingText,
+              "recent project DisplayRole remains available without painting duplicate text under the card");
+        recent->item(0)->setText(recentName); app.processEvents();
+        auto *recentRow = recent->itemWidget(recent->item(0));
+        auto *recentNameLabel = recentRow->findChild<QLabel *>("recentProjectName");
+        auto *recentPathLabel = recentRow->findChild<QLabel *>("recentProjectPath");
+        check(recentNameLabel && recentPathLabel && recentNameLabel->text() == recentName,
+              "recent card retains full name and path separately from its painted elision");
+        const qreal recentFont = recentNameLabel->font().pointSizeF();
+        const int recentHeight = recentRow->height();
+        for (int i = 0; i < 6; ++i) window.findChild<QAction *>("actionZoomIn")->trigger();
+        app.processEvents();
+        if (recentNameLabel->font().pointSizeF() < recentFont + 5.5 || recentRow->height() <= recentHeight)
+            std::cerr << "Recent metrics font=" << recentFont << " -> " << recentNameLabel->font().pointSizeF()
+                      << " height=" << recentHeight << " -> " << recentRow->height()
+                      << " hint=" << recentRow->sizeHint().height() << '\n';
+        check(recentNameLabel->font().pointSizeF() >= recentFont + 5.5 && recentRow->height() > recentHeight,
+              "fractional-point project fonts and row height grow with zoom");
+        check(recentNameLabel->geometry().bottom() < recentPathLabel->geometry().top() &&
+              recentRow->height() >= recentRow->sizeHint().height(), "zoomed recent name and path fit without vertical overlap");
+        for (int i = 0; i < 6; ++i) window.findChild<QAction *>("actionZoomOut")->trigger();
+        app.processEvents();
+        if (qEnvironmentVariableIsSet("BASIS_RECENT_PREVIEW_PATH")) {
+            window.findChild<QAction *>("actionGitHubDarkTheme")->trigger(); app.processEvents();
+            check(window.grab().save(qEnvironmentVariable("BASIS_RECENT_PREVIEW_PATH")), "render recent project cards without overlapping text");
+        }
         recent->itemClicked(recent->item(0));
         QElapsedTimer projectClick;
         projectClick.start();

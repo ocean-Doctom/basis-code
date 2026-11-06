@@ -15,6 +15,13 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.6.1 recent-project rendering fix
+
+- Recent projects retain their DisplayRole name for accessibility and keyboard lookup, while a dedicated delegate draws only the row background beneath the custom card. This removes the duplicate native text visible in the user's screenshot.
+- Single-line card labels elide long names and paths without changing their full text or tooltips. Row height is refreshed from the polished layout after theme/font updates instead of staying at 44 pixels.
+- Corrected theme scaling to match decimal point sizes as a whole (for example 9.5pt), preserving the name/path hierarchy when zooming.
+- Regression checks compare viewport pixels before and after changing only the hidden DisplayRole text, and verify fractional-font growth, adaptive row height and non-overlapping label geometry at six zoom steps. Native full-window rendering was inspected.
+
 ## 1.6.0 bracket matching follow-up
 
 - The syntax pass caches code-bracket offsets per text block, excluding strings and comments recognized by the existing lexer. Cursor movement uses the cache and a coalesced zero-delay refresh; it does not copy or retokenize the whole document.

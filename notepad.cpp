@@ -21,6 +21,8 @@
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QPainter>
+#include <QStyledItemDelegate>
+#include <QStyleOptionViewItem>
 #include <QSettings>
 #include "windowtitlebar.h"
 #include <QAbstractButton>
@@ -83,6 +85,43 @@
 #include <windowsx.h>
 #include <dwmapi.h>
 #endif
+
+class RecentProjectDelegate : public QStyledItemDelegate {
+  public:
+    explicit RecentProjectDelegate(QListWidget *list) : QStyledItemDelegate(list), list(list) {}
+    void paint(QPainter *painter, const QStyleOptionViewItem &original, const QModelIndex &index) const override {
+        QStyleOptionViewItem option(original);
+        initStyleOption(&option, index);
+        // Keep DisplayRole for accessibility and keyboard lookup; the row
+        // widget owns the visible text, so only draw its selection background.
+        option.text.clear(); option.icon = {};
+        const QStyle *skin = option.widget ? option.widget->style() : QApplication::style();
+        skin->drawControl(QStyle::CE_ItemViewItem, &option, painter, option.widget);
+    }
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        if (auto *row = list->indexWidget(index)) return QSize(0, qMax(44, row->sizeHint().height()));
+        return QStyledItemDelegate::sizeHint(option, index);
+    }
+  private:
+    QListWidget *list;
+};
+
+class ProjectTextLabel : public QLabel {
+  public:
+    ProjectTextLabel(const QString &text, Qt::TextElideMode elide, QWidget *parent)
+        : QLabel(text, parent), elide(elide) { setTextFormat(Qt::PlainText); }
+  protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        QColor color = palette().color(foregroundRole());
+        if (!isEnabled()) color.setAlphaF(0.5);
+        painter.setPen(color); painter.setFont(font());
+        painter.drawText(contentsRect(), Qt::AlignLeft | Qt::AlignVCenter,
+            fontMetrics().elidedText(text(), elide, contentsRect().width()));
+    }
+  private:
+    Qt::TextElideMode elide;
+};
 
 static QIcon pluginIcon(const QString &name) {
     if (name != "deepseek" && name != "todo") return QIcon(":/icons/language-" + name + ".svg");
@@ -346,6 +385,7 @@ void Notepad::createWorkspace() {
     recentLayout->addWidget(recentTitle);
     auto *recentList = new QListWidget(recentProjectsPanel);
     recentList->setObjectName("recentProjects");
+    recentList->setItemDelegate(new RecentProjectDelegate(recentList));
     recentList->setFrameShape(QFrame::NoFrame);
     recentLayout->addWidget(recentList, 1);
     sideLayout->addWidget(recentProjectsPanel, 1);
@@ -2251,7 +2291,7 @@ void Notepad::refreshRecentProjects() {
         iconLabel->setFixedSize(18, 18);
         rowLayout->addWidget(iconLabel, 0, Qt::AlignTop);
 
-        auto *label = new QLabel(projectDisplayName(path), row);
+        auto *label = new ProjectTextLabel(projectDisplayName(path), Qt::ElideRight, row);
         label->setObjectName("recentProjectName");
         label->setTextInteractionFlags(Qt::NoTextInteraction);
         label->setToolTip(path);
@@ -2259,7 +2299,7 @@ void Notepad::refreshRecentProjects() {
         label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         QFont pathFont = label->font();
         pathFont.setPointSizeF(pathFont.pointSizeF() - 1.5);
-        auto *subLabel = new QLabel(QDir::toNativeSeparators(path), row);
+        auto *subLabel = new ProjectTextLabel(QDir::toNativeSeparators(path), Qt::ElideMiddle, row);
         subLabel->setObjectName("recentProjectPath");
         subLabel->setFont(pathFont);
         subLabel->setToolTip(path);
@@ -2291,7 +2331,6 @@ void Notepad::refreshRecentProjects() {
         });
         rowLayout->addWidget(more);
 
-        item->setSizeHint(QSize(0, 44));
         list->setItemWidget(item, row);
     }
     list->setVisible(!projects.isEmpty());
@@ -2376,11 +2415,11 @@ void Notepad::renameProject(const QString &path, bool folder) {
 }
 void Notepad::applyTheme() {
     QString scaled = baseTheme;
-    auto matches = QRegularExpression(R"((\d+)pt)").globalMatch(baseTheme);
+    auto matches = QRegularExpression(R"((\d+(?:\.\d+)?)pt)").globalMatch(baseTheme);
     QList<QRegularExpressionMatch> sizes;
     while (matches.hasNext()) sizes.append(matches.next());
     for (auto it = sizes.crbegin(); it != sizes.crend(); ++it)
-        scaled.replace(it->capturedStart(), it->capturedLength(), QString::number(it->captured(1).toInt() + zoomSteps) + "pt");
+        scaled.replace(it->capturedStart(), it->capturedLength(), QString::number(it->captured(1).toDouble() + zoomSteps) + "pt");
     setStyleSheet(scaled);
     const bool github = themeName == "github-dark-default";
     QPalette palette;
@@ -2394,6 +2433,19 @@ void Notepad::applyTheme() {
     palette.setColor(QPalette::HighlightedText, QColor(darkTheme ? "#ffffff" : "#26334d"));
     palette.setColor(QPalette::Link, QColor(github ? "#2f81f7" : darkTheme ? "#7aa2f7" : "#426fae"));
     setPalette(palette);
+    if (auto *recent = findChild<QListWidget *>("recentProjects")) {
+        QTimer::singleShot(0, recent, [recent] {
+            for (int i = 0; i < recent->count(); ++i) {
+                auto *item = recent->item(i);
+                if (auto *row = recent->itemWidget(item)) {
+                    row->ensurePolished();
+                    if (row->layout()) row->layout()->invalidate();
+                    item->setSizeHint(QSize(0, qMax(44, row->sizeHint().height())));
+                }
+            }
+            recent->doItemsLayout();
+        });
+    }
     for (int index = 0; index < tabs->count(); ++index)
         if (auto *page = qobject_cast<QPlainTextEdit *>(tabs->widget(index)))
             static_cast<CodeEditor *>(page)->setColorTheme(themeName);
