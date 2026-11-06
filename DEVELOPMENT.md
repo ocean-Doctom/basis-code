@@ -15,6 +15,14 @@
 
 Source license: Apache-2.0. Publisher: ocean-Doctom.
 
+## 1.6.0 bracket matching follow-up
+
+- The syntax pass caches code-bracket offsets per text block, excluding strings and comments recognized by the existing lexer. Cursor movement uses the cache and a coalesced zero-delay refresh; it does not copy or retokenize the whole document.
+- Matching handles nested (), [] and {}, scans at most 256 blocks, 20,000 UTF-16 units of distance and 10,000 bracket tokens, and pauses on unavailable long-line tokens or in large-file mode. Unsupported Markdown/HTML/plain-text modes do not reuse old code tokens. Hitting a limit does not falsely mark the source bracket as unmatched.
+- Matched pairs receive theme-aware backgrounds; definite malformed nesting or document-end mismatches mark the source. Edit -> Jump to Matching Bracket (Ctrl+Shift+Backslash) moves the caret without changing text.
+- Added common JavaScript expression-start regex literal recognition with escaped slashes, character classes and flags; division remains code. These features use a lightweight lexer, not a complete language parser or full JavaScript grammar.
+- Regression coverage includes nested/reverse/cross-block navigation, comments, C++ raw strings, Python triple quotes, JavaScript regex versus division, malformed nesting, work limits and clearing tokens when changing file type. Native main-window checks verify action state, shortcut and unchanged source; actual GitHub Dark rendering was inspected.
+
 ## 1.5.1 streaming-display follow-up
 
 - Coalesced ChatGPT and DeepSeek streaming display updates with a single-shot 50 ms precise timer. Every delta still appends to the answer immediately; expensive full-message Markdown rendering happens on the display cadence instead of once per SSE frame.

@@ -5,6 +5,8 @@
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QTextBlock>
+#include <QTimer>
+#include <algorithm>
 
 class LineNumberArea : public QWidget {
   public:
@@ -26,6 +28,11 @@ class LineNumberArea : public QWidget {
 CodeEditor::CodeEditor(QWidget *parent) : QPlainTextEdit(parent) {
     highlighter = new SyntaxHighlighter(document());
     lineNumberArea = new LineNumberArea(this);
+    bracketTimer = new QTimer(this);
+    bracketTimer->setSingleShot(true);
+    connect(bracketTimer, &QTimer::timeout, this, [this] { updateBracketMatch(); });
+    connect(this, &QPlainTextEdit::cursorPositionChanged, this, [this] { bracketTimer->start(0); });
+    connect(this, &QPlainTextEdit::textChanged, this, [this] { bracketTimer->start(0); });
     connect(this, &QPlainTextEdit::blockCountChanged, this,
             [this] { updateLineNumberAreaWidth(); });
     connect(this, &QPlainTextEdit::updateRequest, this,
@@ -89,6 +96,7 @@ void CodeEditor::paintLineNumbers(QPaintEvent *event) {
 
 void CodeEditor::setFilePath(const QString &path) {
     highlighter->setFilePath(path);
+    bracketTimer->start(0);
 }
 bool CodeEditor::largeFileMode() const { return highlighter->largeFileMode(); }
 
@@ -99,5 +107,73 @@ void CodeEditor::setColorTheme(const QString &name) {
     darkTheme = name != "light";
     githubTheme = name == "github-dark-default";
     highlighter->setColorTheme(name);
+    bracketTimer->start(0);
     lineNumberArea->update();
+}
+
+void CodeEditor::updateBracketMatch() {
+    bracketDestination = -1;
+    setExtraSelections({});
+    if (textCursor().hasSelection() || largeFileMode()) return;
+    const QString opening = "([{", closing = ")]}";
+    int source = -1;
+    QChar first;
+    for (int position : {textCursor().position() - 1, textCursor().position()}) {
+        if (position < 0 || position >= document()->characterCount() - 1) continue;
+        const auto block = document()->findBlock(position);
+        const auto *positions = highlighter->bracketPositions(block);
+        if (!positions || !std::binary_search(positions->cbegin(), positions->cend(), position - block.position())) continue;
+        source = position; first = document()->characterAt(position); break;
+    }
+    if (source < 0) return;
+    const bool forward = opening.contains(first);
+    const int direction = forward ? 1 : -1;
+    QVector<QChar> stack{first};
+    int partner = -1, blocks = 0, tokens = 0;
+    bool mismatch = false;
+    auto block = document()->findBlock(source);
+    while (block.isValid()) {
+        if (++blocks > 256) return;
+        const auto *positions = highlighter->bracketPositions(block);
+        if (!positions) return;
+        int index = forward
+            ? int(std::upper_bound(positions->cbegin(), positions->cend(), source - block.position()) - positions->cbegin())
+            : int(std::lower_bound(positions->cbegin(), positions->cend(), source - block.position()) - positions->cbegin()) - 1;
+        for (; index >= 0 && index < positions->size(); index += direction) {
+            const int position = block.position() + positions->at(index);
+            if (++tokens > 10000 || qAbs(position - source) > 20000) return;
+            const QChar bracket = document()->characterAt(position);
+            const bool opens = opening.contains(bracket);
+            if (opens == forward) stack.append(bracket);
+            else {
+                const int expected = forward ? opening.indexOf(stack.last()) : closing.indexOf(stack.last());
+                const int actual = forward ? closing.indexOf(bracket) : opening.indexOf(bracket);
+                if (actual != expected) { mismatch = true; break; }
+                stack.removeLast();
+                if (stack.isEmpty()) { partner = position; break; }
+            }
+        }
+        if (mismatch || partner >= 0) break;
+        block = forward ? block.next() : block.previous();
+        if (block.isValid() && qAbs(block.position() - source) > 20000) return;
+    }
+    QList<QTextEdit::ExtraSelection> selections;
+    const bool matched = partner >= 0;
+    for (int position : matched ? QList<int>{source, partner} : QList<int>{source}) {
+        QTextEdit::ExtraSelection selection;
+        selection.cursor = QTextCursor(document());
+        selection.cursor.setPosition(position); selection.cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+        selection.format.setBackground(QColor(matched ? (darkTheme ? "#264f78" : "#dbeafe") : (darkTheme ? "#5a1d23" : "#fde8e8")));
+        selection.format.setForeground(QColor(matched ? (darkTheme ? "#79c0ff" : "#1d4ed8") : (darkTheme ? "#ff7b72" : "#b42318")));
+        selections.append(selection);
+    }
+    setExtraSelections(selections);
+    if (matched) bracketDestination = partner + (source == textCursor().position() - 1 ? 1 : 0);
+}
+
+void CodeEditor::jumpToMatchingBracket() {
+    updateBracketMatch();
+    if (bracketDestination < 0) return;
+    auto cursor = textCursor(); cursor.setPosition(bracketDestination);
+    setTextCursor(cursor); centerCursor();
 }

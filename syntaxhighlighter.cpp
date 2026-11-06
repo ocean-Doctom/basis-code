@@ -11,6 +11,8 @@ namespace {
 class DelimiterData : public QTextBlockUserData {
   public:
     QString ending;
+    QVector<int> brackets;
+    bool bracketScanReady = false;
 };
 }
 SyntaxHighlighter::SyntaxHighlighter(QTextDocument *document) : QSyntaxHighlighter(document) {
@@ -25,6 +27,10 @@ SyntaxHighlighter::SyntaxHighlighter(QTextDocument *document) : QSyntaxHighlight
 }
 bool SyntaxHighlighter::largeFileMode() const {
     return document() && (document()->characterCount() > 20 * 1024 * 1024 || document()->blockCount() > 100000);
+}
+const QVector<int> *SyntaxHighlighter::bracketPositions(const QTextBlock &block) const {
+    const auto *data = dynamic_cast<DelimiterData *>(block.userData());
+    return data && data->bracketScanReady && !largeFileMode() ? &data->brackets : nullptr;
 }
 void SyntaxHighlighter::setFilePath(const QString &path) {
     const QString extension = QFileInfo(path).suffix().toLower();
@@ -71,6 +77,7 @@ void SyntaxHighlighter::mark(int start, int length, const char *color, bool bold
 }
 void SyntaxHighlighter::highlightBlock(const QString &text) {
     setCurrentBlockState(0);
+    setCurrentBlockUserData(nullptr);
     if (largeFileMode()) return;
     if (mode.isEmpty()) return;
     // Similar to VS Code's long-line tokenization limit: avoid blocking typing
@@ -85,6 +92,9 @@ void SyntaxHighlighter::highlightBlock(const QString &text) {
         }
         return;
     }
+    auto *metadata = new DelimiterData;
+    metadata->bracketScanReady = mode != "markdown" && mode != "html";
+    setCurrentBlockUserData(metadata);
     const auto apply = [&](const QString &pattern, const char *color, bool bold = false) {
         static thread_local QHash<QString, QRegularExpression> expressions;
         if (!expressions.contains(pattern)) expressions.insert(pattern, QRegularExpression(pattern));
@@ -103,7 +113,7 @@ void SyntaxHighlighter::highlightBlock(const QString &text) {
             const bool closing = previousBlockState() == 1 && text.trimmed().startsWith(delimiter);
             if (!closing) {
                 setCurrentBlockState(1);
-                auto *data = new DelimiterData; data->ending = delimiter; setCurrentBlockUserData(data);
+                metadata->ending = delimiter;
             }
             return;
         }
@@ -116,9 +126,7 @@ void SyntaxHighlighter::highlightBlock(const QString &text) {
     if (text.isEmpty() && previousBlockState() > 0) {
         setCurrentBlockState(previousBlockState());
         const auto *previous = dynamic_cast<DelimiterData *>(currentBlock().previous().userData());
-        auto *data = new DelimiterData;
-        data->ending = previous ? previous->ending : "*/";
-        setCurrentBlockUserData(data);
+        metadata->ending = previous ? previous->ending : "*/";
         return;
     }
     int position = 0;
@@ -136,7 +144,7 @@ void SyntaxHighlighter::highlightBlock(const QString &text) {
             mark(0, count, previousBlockState() == 1 ? "#718774" : "#a36136");
             if (end < 0) {
                 setCurrentBlockState(previousBlockState());
-                auto *next = new DelimiterData; next->ending = ending; setCurrentBlockUserData(next);
+                metadata->ending = ending;
                 return;
             }
             position = count;
@@ -174,10 +182,35 @@ void SyntaxHighlighter::highlightBlock(const QString &text) {
             mark(position, count, state == 1 ? "#718774" : "#a36136");
             if (end < 0) {
                 setCurrentBlockState(state);
-                auto *data = new DelimiterData; data->ending = ending; setCurrentBlockUserData(data);
+                metadata->ending = ending;
                 return;
             }
             position += count; continue;
+        }
+        if (mode == "javascript" && text[position] == '/') {
+            int previous = position - 1;
+            while (previous >= 0 && text[previous].isSpace()) --previous;
+            int wordStart = previous;
+            while (wordStart >= 0 && (text[wordStart].isLetterOrNumber() || text[wordStart] == '_')) --wordStart;
+            const auto word = QStringView(text).mid(wordStart + 1, previous - wordStart);
+            const bool expressionStart = previous < 0 || QStringView(u"=([{,:;!&|?").contains(text[previous]) ||
+                (text[previous] == '>' && previous > 0 && text[previous - 1] == '=') ||
+                word == u"return" || word == u"throw" || word == u"case" || word == u"yield";
+            if (expressionStart) {
+                int end = position + 1;
+                bool characterClass = false, closed = false;
+                while (end < text.size()) {
+                    const auto character = text[end++];
+                    if (character == '\\') { if (end < text.size()) ++end; continue; }
+                    if (character == '[') characterClass = true;
+                    else if (character == ']') characterClass = false;
+                    else if (character == '/' && !characterClass) { closed = true; break; }
+                }
+                if (closed) {
+                    while (end < text.size() && text[end].isLetter()) ++end;
+                    mark(position, end - position, "#a36136"); position = end; continue;
+                }
+            }
         }
         if (text[position] == '"' || (mode != "json" && text[position] == '\'')) {
             const QChar quote = text[position];
@@ -198,6 +231,7 @@ void SyntaxHighlighter::highlightBlock(const QString &text) {
             mark(position, end - position, "#794baa"); position = end; continue;
         }
         if (mode == "html") { ++position; continue; }
+        if (QStringView(u"()[]{}").contains(text[position])) metadata->brackets.append(position);
         if (text[position].isDigit() && (position == 0 || (!text[position - 1].isLetterOrNumber() && text[position - 1] != '_'))) {
             static const QRegularExpression number(R"((?:0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)[uUlLfF]*)");
             const auto match = number.match(text, position);

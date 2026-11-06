@@ -3,6 +3,7 @@
 
 class LineNumberArea;
 class SyntaxHighlighter;
+class QTimer;
 
 class CodeEditor : public QPlainTextEdit {
   public:
@@ -12,6 +13,7 @@ class CodeEditor : public QPlainTextEdit {
     void setColorTheme(const QString &name);
     void setFilePath(const QString &path);
     bool largeFileMode() const;
+    void jumpToMatchingBracket();
 
   protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -21,8 +23,11 @@ class CodeEditor : public QPlainTextEdit {
     friend class LineNumberArea;
     void updateLineNumberAreaWidth();
     void paintLineNumbers(QPaintEvent *event);
+    void updateBracketMatch();
     bool darkTheme = false;
     bool githubTheme = false;
     SyntaxHighlighter *highlighter;
     QWidget *lineNumberArea = nullptr;
+    QTimer *bracketTimer;
+    int bracketDestination = -1;
 };

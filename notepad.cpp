@@ -1727,6 +1727,12 @@ void Notepad::createActions() {
     findAction->setObjectName("actionFindReplace");
     findAction->setShortcuts({QKeySequence::Find, QKeySequence("Ctrl+H")});
     connect(findAction, &QAction::triggered, this, [this] { openToolkit("Find and Replace", {}); });
+    auto *jumpBracketAction = editMenu->addAction(tr("跳转到配对括号"));
+    jumpBracketAction->setObjectName("actionJumpBracket");
+    jumpBracketAction->setShortcut(QKeySequence("Ctrl+Shift+\\"));
+    connect(jumpBracketAction, &QAction::triggered, this, [this] {
+        if (editor) static_cast<CodeEditor *>(editor)->jumpToMatchingBracket();
+    });
     connect(aboutAction, &QAction::triggered, this, [this] {
         QMessageBox::about(this, tr("关于 Basis Code"),
                            tr("Basis Code %1\n作者：ocean-Doctom\nApache-2.0 开源许可证\n\n使用 C++ 和 Qt Widgets 构建的代码编辑器。\n文件以 UTF-8 "
@@ -1736,7 +1742,7 @@ void Notepad::createActions() {
     connect(aboutQtAction, &QAction::triggered, this,
             [this] { QMessageBox::aboutQt(this); });
     documentActions = {saveAction, saveAsAction, printAction, pasteAction,
-                       selectAllAction, wrapAction, fontAction};
+                       selectAllAction, wrapAction, fontAction, jumpBracketAction};
     tabActions = {closeAction, nextTab, previousTab};
     for (auto *menu : {fileMenu, editMenu, viewMenu, helpMenu}) {
         addActions(menu->actions());

@@ -587,6 +587,28 @@ int main(int argc, char *argv[]) {
                 "confirmed file deletion closes its document");
         }
         {
+            Notepad bracketWindow;
+            auto *jump = bracketWindow.findChild<QAction *>("actionJumpBracket");
+            check(jump && !jump->isEnabled() && !jump->shortcut().isEmpty(), "bracket action requires a code document and has a shortcut");
+            const QString path = temporary.filePath("bracket-example.cpp");
+            const QByteArray text = "int main() {\n    const char *text = \"}\";\n    return (1 + 2);\n}\n";
+            writeText(path, text);
+            check(bracketWindow.openProject(temporary.path()) && bracketWindow.loadFile(path), "open bracket integration fixture");
+            auto *bracketTabs = bracketWindow.findChild<QTabWidget *>("documentTabs");
+            auto *code = qobject_cast<QPlainTextEdit *>(bracketTabs->currentWidget());
+            auto cursor = code->textCursor(); cursor.setPosition(text.indexOf('{') + 1); code->setTextCursor(cursor);
+            app.processEvents();
+            check(jump->isEnabled() && code->extraSelections().size() == 2, "main window shows cached bracket pair");
+            jump->trigger();
+            check(code->textCursor().position() == text.lastIndexOf('}') + 1 && !code->document()->isModified(),
+                  "menu action jumps to matching bracket without modifying source");
+            if (qEnvironmentVariableIsSet("BASIS_BRACKET_PREVIEW_PATH")) {
+                bracketWindow.findChild<QAction *>("actionGitHubDarkTheme")->trigger();
+                bracketWindow.resize(1100, 720); bracketWindow.show(); app.processEvents();
+                check(bracketWindow.grab().save(qEnvironmentVariable("BASIS_BRACKET_PREVIEW_PATH")), "render native bracket matching");
+            }
+        }
+        {
             Notepad renameWindow;
             renameWindow.show();
             const QString before = temporary.filePath("rename-before");

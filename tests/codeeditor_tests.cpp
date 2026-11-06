@@ -122,6 +122,47 @@ int main(int argc, char **argv) {
         editor.setFilePath("example.txt");
         app.processEvents();
         check(colorAt(0, 1).isEmpty(), "plain text clears previous highlighting");
+        auto matchAt = [&](const QString &text, int position, const QString &path = "match.cpp") {
+            editor.setFilePath(path); editor.setPlainText(text);
+            auto cursor = editor.textCursor(); cursor.setPosition(position); editor.setTextCursor(cursor);
+            app.processEvents();
+            return editor.extraSelections();
+        };
+        const QString brackets = "call(a[0], \")\")";
+        auto matches = matchAt(brackets, 5);
+        check(matches.size() == 2 && matches[0].cursor.selectionStart() == 4 &&
+              matches[1].cursor.selectionStart() == brackets.size() - 1,
+              "pair matching respects nested brackets and ignores quoted closing bracket");
+        editor.jumpToMatchingBracket();
+        check(editor.textCursor().position() == brackets.size(), "jump reaches closing bracket edge");
+        editor.jumpToMatchingBracket();
+        check(editor.textCursor().position() == 5 && !editor.document()->isModified(),
+              "reverse jump returns to opening edge without editing document");
+        matches = matchAt("call(\n/* ) */\nvalue[0])", 5);
+        check(matches.size() == 2 && matches[1].cursor.selectionStart() == editor.toPlainText().size() - 1,
+              "matching crosses blocks and ignores multiline comment brackets");
+        matches = matchAt("call(R\"tag(])tag\")", 5);
+        check(matches.size() == 2 && matches[1].cursor.selectionStart() == editor.toPlainText().size() - 1,
+              "C++ raw-string brackets do not affect matching");
+        matches = matchAt("call(\"\"\"\n) ]\n\"\"\")", 5, "match.py");
+        check(matches.size() == 2 && matches[1].cursor.selectionStart() == editor.toPlainText().size() - 1,
+              "Python triple-quoted brackets do not affect matching");
+        matches = matchAt("([)]", 1);
+        check(matches.size() == 1 && matches[0].cursor.selectionStart() == 0, "malformed nesting highlights only unmatched source");
+        matches = matchAt("test(/[)]/.source, value)", 5, "match.js");
+        check(matches.size() == 2 && matches[1].cursor.selectionStart() == editor.toPlainText().size() - 1,
+              "JavaScript regex character-class brackets do not affect call matching");
+        matches = matchAt("call(a / (b + c))", 5, "match.js");
+        check(matches.size() == 2 && matches[1].cursor.selectionStart() == editor.toPlainText().size() - 1,
+              "JavaScript division remains code with nested parentheses");
+        check(matchAt("\"(\"", 2).isEmpty(), "cursor inside string does not match brackets");
+        check(matchAt("// (", 4).isEmpty(), "cursor inside line comment does not match brackets");
+        check(matchAt("(\n" + QString("x\n").repeated(300) + ")", 1).isEmpty(),
+              "matching stops at block budget instead of scanning whole document");
+        check(matchAt("(\n" + QString(12000, ' ') + "\n" + QString(12000, ' ') + "\n)", 1).isEmpty(),
+              "matching stops at distance budget without marking an uncertain mismatch");
+        check(matchAt("(" + QString(21000, ' ') + ")", 1).isEmpty(), "long skipped lines do not trigger bracket scans");
+        check(matchAt("(value)", 1, "plain.txt").isEmpty(), "unsupported plain text does not reuse code bracket cache");
         std::cout << "Passed line number checks\n";
         return 0;
     } catch (const std::exception &error) {
