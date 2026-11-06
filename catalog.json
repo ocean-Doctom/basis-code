@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "extensions": [
+    {
+      "id": "basis.ai-agent",
+      "name": "AI Agent",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.ai-agent",
+      "summary": "统一管理 AI 账户、API Key、模型与 Chat / Agent 对话。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.ai-agent-1.0.0.zip",
+      "sha256": "d557df724e40f196f66b317262045c5760c1aaf337a853ff7e75ee77185be1bf",
+      "size": 120367
+    },
+    {
+      "id": "basis.cpp",
+      "name": "C/C++",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.cpp",
+      "summary": "配置 C/C++ 编译器与运行支持。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.cpp-1.0.0.zip",
+      "sha256": "f7d079104e571fccfe5dd2296a4c19e7db9c1ff06226e9221e3979c11ba96168",
+      "size": 63847
+    },
+    {
+      "id": "basis.java",
+      "name": "Java",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.java",
+      "summary": "配置 JDK、编译运行与 JDB 调试。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.java-1.0.0.zip",
+      "sha256": "e97975863d9e2904a9ee5e7901702140ced228a69b2ae606e8dfee9fc5e414a4",
+      "size": 63849
+    },
+    {
+      "id": "basis.python",
+      "name": "Python",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.python",
+      "summary": "配置 Python、运行与 PDB 调试。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.python-1.0.0.zip",
+      "sha256": "a6d7a7869ff200f9eb30c2cc14cd4fba23a40886ecb7cb896e5a7f34c699e2b0",
+      "size": 63854
+    },
+    {
+      "id": "basis.markdown",
+      "name": "Markdown Preview",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.markdown",
+      "summary": "实时预览 Markdown 文档。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.markdown-1.0.0.zip",
+      "sha256": "e248f1dbb18d5fb11638c4cc409bfa5b98352f963589330279e3b4f689e7157a",
+      "size": 28961
+    },
+    {
+      "id": "basis.json",
+      "name": "JSON Tools",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.json",
+      "summary": "校验和格式化 JSON，支持撤销。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.json-1.0.0.zip",
+      "sha256": "e8bba90b44fd74012bd42d1c8523684b9fb50ef9e583f4e55e6b383a7b4b2f1d",
+      "size": 28951
+    },
+    {
+      "id": "basis.whitespace",
+      "name": "Whitespace Cleaner",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.whitespace",
+      "summary": "清理行尾空白与多余空行。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.whitespace-1.0.0.zip",
+      "sha256": "639432f04c0e355d8b2a55e9f67844af0e3d567fda9ebcce38ccc75c697ec602",
+      "size": 28974
+    },
+    {
+      "id": "basis.git",
+      "name": "Git Changes",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.git",
+      "summary": "异步查看项目 Git 状态和差异。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.git-1.0.0.zip",
+      "sha256": "b718ed9ebf4ff5038ad49bed05e4b23aaa5501c954dd603a0ab4c2490fb85f03",
+      "size": 28951
+    },
+    {
+      "id": "basis.search",
+      "name": "Project Search",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.search",
+      "summary": "后台项目搜索与结果跳转。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.search-1.0.0.zip",
+      "sha256": "7ba054a350eb313fe2aecadd21e06808689a744e78843b16f87c9154161880f9",
+      "size": 21610
+    },
+    {
+      "id": "basis.replace",
+      "name": "Find and Replace",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.replace",
+      "summary": "文档查找与可撤销的批量替换。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.replace-1.0.0.zip",
+      "sha256": "08c090e4a057a84ddcae54acfb53fada9ae3b192238e9b3285452bc7b303a4d3",
+      "size": 28970
+    },
+    {
+      "id": "basis.todo",
+      "name": "TODO Tree",
+      "version": "1.0.0",
+      "minimumHostVersion": "1.7.0",
+      "format": "basis-extension-v1",
+      "engine": "basis.todo",
+      "summary": "汇总项目 TODO、FIXME 等标记。",
+      "url": "https://raw.githubusercontent.com/ocean-Doctom/basis-code/marketplace/packages/basis.todo-1.0.0.zip",
+      "sha256": "1897c1cd33e6772db659c76fc7141746cc7fed9291ab4ea68f683c3180582ddb",
+      "size": 21598
+    }
+  ]
+}
